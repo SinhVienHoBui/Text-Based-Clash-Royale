@@ -1,0 +1,15 @@
+{
+  "towers": [
+    {"name": "King", "hp": 2000, "atk": 500, "def": 300, "crit": 0.10, "exp": 200},
+    {"name": "Guard1", "hp": 1000, "atk": 300, "def": 100, "crit": 0.05, "exp": 100},
+    {"name": "Guard2", "hp": 1000, "atk": 300, "def": 100, "crit": 0.05, "exp": 100}
+  ],
+  "troops": [
+    {"name": "Pawn",   "hp": 50,  "atk": 150, "def": 100, "mana": 3, "exp": 5,  "special": ""},
+    {"name": "Bishop", "hp": 100, "atk": 200, "def": 150, "mana": 4, "exp": 10, "special": ""},
+    {"name": "Rook",   "hp": 250, "atk": 200, "def": 200, "mana": 5, "exp": 25, "special": ""},
+    {"name": "Knight", "hp": 200, "atk": 300, "def": 150, "mana": 5, "exp": 25, "special": ""},
+    {"name": "Prince", "hp": 500, "atk": 400, "def": 300, "mana": 6, "exp": 50, "special": ""},
+    {"name": "Queen",  "hp": 0,   "atk": 0,   "def": 0,   "mana": 5, "exp": 30, "special": "heal"}
+  ]
+}
