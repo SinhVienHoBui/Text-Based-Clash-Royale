@@ -116,14 +116,18 @@ func main() {
 
 // Only one scanner reads from server, and all game logic is handled here
 func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
+	fmt.Println("[Waiting for game to start...]")
 	for scanner.Scan() {
 		msg := scanner.Text()
 		fmt.Println(msg)
 		if strings.HasPrefix(msg, "ACK|GAME_STARTED") {
+			fmt.Println("[Game started successfully!]")
+			fmt.Println("[Waiting for turn info...]")
 			listenTurnLoop(scanner, conn, mode)
 			return
 		}
 		if strings.HasPrefix(msg, "ERR|") {
+			fmt.Println("[Error starting game]")
 			os.Exit(1)
 		}
 	}
@@ -131,11 +135,13 @@ func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
 
 func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 	myTurn := false
+	currentState := ""
 	for scanner.Scan() {
 		msg := scanner.Text()
 		if strings.HasPrefix(msg, "STATE|") {
 			fmt.Println("[Game State Update]")
-			fmt.Println(msg[6:])
+			currentState = msg[6:]
+			fmt.Println(currentState)
 			// After showing state, continue waiting for TURN message (do not return to menu)
 			continue
 		} else if strings.HasPrefix(msg, "ATTACK_RESULT|") {
@@ -148,12 +154,14 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 			os.Exit(0)
 		} else if strings.HasPrefix(msg, "TURN|Your turn!") {
 			myTurn = true
-			inGameLoop(scanner, conn, mode, myTurn)
+			fmt.Println("[Turn Update] Your turn!")
+			inGameLoop(scanner, conn, mode, myTurn, currentState)
 			// After inGameLoop returns, continue waiting for next TURN (do not return to menu)
 			continue
 		} else if strings.HasPrefix(msg, "TURN|Wait for your turn...") {
 			myTurn = false
-			inGameLoop(scanner, conn, mode, myTurn)
+			fmt.Println("[Turn Update] Wait for your turn...")
+			inGameLoop(scanner, conn, mode, myTurn, currentState)
 			// After inGameLoop returns, continue waiting for next TURN (do not return to menu)
 			continue
 		} else {
@@ -164,8 +172,15 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 }
 
 // Refactored: always allow STATE and EXIT, only allow DEPLOY on your turn
-func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool) {
+func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool, cachedState string) {
 	reader := bufio.NewReader(os.Stdin)
+
+	// Nếu đã có state được lưu trữ, hiển thị nó ngay
+	if cachedState != "" && myTurn {
+		fmt.Println("[Cached Game State]")
+		fmt.Println(cachedState)
+	}
+
 	for {
 		if myTurn {
 			fmt.Print("Enter command: 1. Deploy  2. State  3. Exit\n> ")
@@ -184,9 +199,11 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool)
 			tower = strings.TrimSpace(tower)
 			conn.Write([]byte("DEPLOY|" + troop + "|" + tower + "\n"))
 			// After deploy, immediately return to listenTurnLoop to wait for next TURN
+			fmt.Println("[Sending deploy command...]")
 			return
 		} else if cmd == "2" {
 			conn.Write([]byte("STATE\n"))
+			fmt.Println("[Requesting game state...]")
 			// Wait for STATE| response and print it, then continue in-game menu
 			for scanner.Scan() {
 				msg := scanner.Text()
@@ -218,7 +235,7 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool)
 			fmt.Println("Exiting game...")
 			os.Exit(0)
 		} else {
-			fmt.Println("Invalid command.")
+			fmt.Println("Invalid command. Please try again.")
 		}
 	}
 }

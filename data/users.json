@@ -11,6 +11,12 @@
       "password": "123456",
       "exp": 0,
       "level": 1
+    },
+    {
+      "username": "nhuy",
+      "password": "123456",
+      "exp": 0,
+      "level": 1
     }
   ]
 }

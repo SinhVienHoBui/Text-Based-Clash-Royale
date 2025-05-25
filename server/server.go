@@ -290,7 +290,20 @@ func notifyGameStartedWithTurn(roomID string) {
 	for uname := range game.Players {
 		if v, ok := userConns.Load(uname); ok {
 			if conn, ok2 := v.(net.Conn); ok2 {
+				// Gửi thông báo game đã bắt đầu
 				conn.Write([]byte("ACK|GAME_STARTED\n"))
+
+				// Thêm delay nhỏ để đảm bảo các thông báo không đến quá gần nhau
+				time.Sleep(100 * time.Millisecond)
+
+				// Gửi trạng thái game ban đầu
+				stateMsg := "STATE|" + formatGameState(game, uname) + "\n"
+				conn.Write([]byte(stateMsg))
+
+				// Thêm delay nhỏ để đảm bảo các thông báo không đến quá gần nhau
+				time.Sleep(100 * time.Millisecond)
+
+				// Gửi thông báo lượt chơi
 				if uname == game.TurnUser {
 					conn.Write([]byte("TURN|Your turn!\n"))
 				} else {
@@ -528,10 +541,24 @@ func handleDeploy(username, troopName, towerName string) string {
 			p.Turn = false
 		}
 	}
-	// Notify both players of turn change
+
+	// 1. First send attack result
+	attackResult := fmt.Sprintf("ATTACK_RESULT|%s|%s|%d|%d", troopName, towerName, damage, tower.HP)
+	sendToUser(username, attackResult)
+	sendToUser(enemyName, attackResult)
+
+	// 2. Then send updated state with a small delay to both players
+	time.Sleep(100 * time.Millisecond)
+	stateMsg := "STATE|" + formatGameState(game, username)
+	sendToUser(username, stateMsg)
+	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
+
+	// 3. Finally, send turn notifications with a delay
+	time.Sleep(100 * time.Millisecond)
 	sendToUser(game.TurnUser, "TURN|Your turn!")
 	sendToUser(username, "TURN|Wait for your turn...")
-	return "STATE|" + formatGameState(game, username)
+
+	return "ACK|Deploy successful"
 }
 
 // Helper to send message to a user if connected
