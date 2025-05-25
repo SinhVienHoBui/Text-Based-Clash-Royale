@@ -149,13 +149,16 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		} else if strings.HasPrefix(msg, "TURN|Your turn!") {
 			myTurn = true
 			inGameLoop(scanner, conn, mode, myTurn)
-			return
+			// After inGameLoop returns, continue waiting for next TURN (do not return to menu)
+			continue
 		} else if strings.HasPrefix(msg, "TURN|Wait for your turn...") {
 			myTurn = false
 			inGameLoop(scanner, conn, mode, myTurn)
-			return
+			// After inGameLoop returns, continue waiting for next TURN (do not return to menu)
+			continue
 		} else {
 			fmt.Println(msg)
+			continue
 		}
 	}
 }
