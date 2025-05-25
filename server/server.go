@@ -62,7 +62,7 @@ type Troop struct {
 	ATK   int
 	DEF   int
 	Owner string // Username
-	Alive bool
+	// HP = 0 nghĩa là quân đã chết hoặc đã sử dụng
 }
 
 type PlayerState struct {
@@ -436,7 +436,6 @@ func startGame(roomID, username string, conn net.Conn) bool {
 				ATK:   spec.ATK,
 				DEF:   spec.DEF,
 				Owner: uname,
-				Alive: true,
 			})
 		}
 		// Assign towers from towerSpecs
@@ -492,7 +491,7 @@ func handleDeploy(username, troopName, towerName string) string {
 	player := game.Players[username]
 	var troop *Troop
 	for _, t := range player.Troops {
-		if t.Name == troopName && t.Alive {
+		if t.Name == troopName && t.HP > 0 {
 			troop = t
 			break
 		}
@@ -513,7 +512,8 @@ func handleDeploy(username, troopName, towerName string) string {
 	if !ok || tower.HP <= 0 {
 		return "ERR|Invalid or destroyed tower"
 	}
-	// Simple attack logic
+
+	// Simple attack logic - troop attacks tower
 	damage := troop.ATK - tower.DEF
 	if damage < 0 {
 		damage = 0
@@ -522,8 +522,17 @@ func handleDeploy(username, troopName, towerName string) string {
 	if tower.HP < 0 {
 		tower.HP = 0
 	}
-	// Mark troop as used (dead for this turn-based version)
-	troop.Alive = false
+
+	// Tower counter-attack logic - tower attacks troop
+	counterDamage := tower.ATK - troop.DEF
+	if counterDamage < 0 {
+		counterDamage = 0
+	}
+	troop.HP -= counterDamage
+	if troop.HP <= 0 {
+		troop.HP = 0 // Đánh dấu troop đã chết/đã sử dụng
+	}
+
 	// Check for win
 	if enemy.Towers["King"].HP <= 0 {
 		game.Over = true
@@ -552,11 +561,16 @@ func handleDeploy(username, troopName, towerName string) string {
 	stateMsg := "STATE|" + formatGameState(game, username)
 	sendToUser(username, stateMsg)
 	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
-
 	// 3. Finally, send turn notifications with a delay
 	time.Sleep(100 * time.Millisecond)
-	sendToUser(game.TurnUser, "TURN|Your turn!")
-	sendToUser(username, "TURN|Wait for your turn...")
+	// Send appropriate turn message to each player
+	for playerName := range game.Players {
+		if playerName == game.TurnUser {
+			sendToUser(playerName, "TURN|Your turn!")
+		} else {
+			sendToUser(playerName, "TURN|Wait for your turn...")
+		}
+	}
 
 	return "ACK|Deploy successful"
 }
@@ -593,7 +607,12 @@ func formatGameState(g *GameState, username string) string {
 		}
 		sb.WriteString("  Troops:\n")
 		for _, tr := range ps.Troops {
-			sb.WriteString(fmt.Sprintf("    %s (Alive: %v)\n", tr.Name, tr.Alive))
+			alive := "No"
+			if tr.HP > 0 {
+				alive = "Yes"
+			}
+			sb.WriteString(fmt.Sprintf("    %s: HP=%d ATK=%d DEF=%d Active=%s\n",
+				tr.Name, tr.HP, tr.ATK, tr.DEF, alive))
 		}
 	}
 	sb.WriteString(fmt.Sprintf("Current turn: %s\n", g.TurnUser))
@@ -714,7 +733,6 @@ func startEnhancedGame(roomID string) bool {
 				ATK:   int(float64(t.ATK) * mult),
 				DEF:   int(float64(t.DEF) * mult),
 				Owner: uname,
-				Alive: true,
 			})
 		}
 		players[uname] = &EnhancedPlayerState{
@@ -832,7 +850,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 	ps := game.Players[username]
 	var troop *Troop
 	for _, t := range ps.Troops {
-		if t.Name == troopName && t.Alive {
+		if t.Name == troopName && t.HP > 0 {
 			troop = t
 			break
 		}
