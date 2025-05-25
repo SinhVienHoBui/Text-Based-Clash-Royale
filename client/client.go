@@ -136,6 +136,7 @@ func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
 func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 	myTurn := false
 	currentState := ""
+	waitingForInput := false
 
 	for scanner.Scan() {
 		msg := scanner.Text()
@@ -155,19 +156,28 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		} else if strings.HasPrefix(msg, "TURN|Your turn!") {
 			myTurn = true
 			fmt.Println("[Turn Update] Your turn!")
-			// Only enter game loop after receiving turn information
-			inGameLoop(scanner, conn, mode, myTurn, currentState)
+
+			// Hiển thị menu khi đến lượt người chơi
+			if !waitingForInput {
+				waitingForInput = true
+				go func() {
+					inGameLoop(scanner, conn, mode, myTurn, currentState)
+					waitingForInput = false
+				}()
+			}
 		} else if strings.HasPrefix(msg, "TURN|Wait for your turn...") {
 			myTurn = false
 			fmt.Println("[Turn Update] Wait for your turn...")
-			// Only enter game loop after receiving turn information
-			inGameLoop(scanner, conn, mode, myTurn, currentState)
+			fmt.Println("[Đối thủ đã thực hiện xong lượt đi]")
+			fmt.Println("[Chờ đến lượt của bạn...]")
 		} else if strings.HasPrefix(msg, "ERR|") {
 			// Handle error messages
 			fmt.Println("[Error]", msg[4:])
 		} else if strings.HasPrefix(msg, "ACK|") {
-			// Handle acknowledgment messages
-			fmt.Println("[Server]", msg[4:])
+			// Chỉ hiển thị ACK khi đó thực sự là xác nhận của lệnh mình đã gửi
+			if myTurn {
+				fmt.Println("[Server]", msg[4:])
+			}
 		} else {
 			// Handle other server messages
 			fmt.Println(msg)
@@ -185,36 +195,46 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 		fmt.Println(cachedState)
 	}
 
-	// Display menu once and wait for input
+	// Chỉ hiển thị menu cho người đang có lượt
 	if myTurn {
 		fmt.Print("Enter command: 1. Deploy  3. Exit\n> ")
+
+		cmd, _ := reader.ReadString('\n')
+		cmd = strings.TrimSpace(cmd)
+
+		if cmd == "1" {
+			fmt.Print("Troop name: ")
+			troop, _ := reader.ReadString('\n')
+			troop = strings.TrimSpace(troop)
+			fmt.Print("Target tower: ")
+			tower, _ := reader.ReadString('\n')
+			tower = strings.TrimSpace(tower)
+
+			// Clear any input buffer before sending command
+			conn.Write([]byte("DEPLOY|" + troop + "|" + tower + "\n"))
+			fmt.Println("[Sending deploy command...]")
+			// Return to listening for server messages
+			return
+		} else if cmd == "3" {
+			fmt.Println("Exiting game...")
+			os.Exit(0)
+		} else if cmd != "" {
+			fmt.Println("Lệnh không hợp lệ, vui lòng thử lại.")
+			// Return to the turn loop to receive proper instructions
+			return
+		}
 	} else {
-		fmt.Println("Chờ đối thủ... (bạn chỉ có thể thoát)")
-		fmt.Print("Enter command: 3. Exit\n> ")
-	}
+		// Khi chờ đối thủ, chỉ cho phép người chơi thoát game
+		fmt.Print("Enter 'exit' to quit game\n> ")
+		cmd, _ := reader.ReadString('\n')
+		cmd = strings.ToLower(strings.TrimSpace(cmd))
 
-	cmd, _ := reader.ReadString('\n')
-	cmd = strings.TrimSpace(cmd)
+		if cmd == "exit" || cmd == "3" {
+			fmt.Println("Exiting game...")
+			os.Exit(0)
+		}
 
-	if myTurn && cmd == "1" {
-		fmt.Print("Troop name: ")
-		troop, _ := reader.ReadString('\n')
-		troop = strings.TrimSpace(troop)
-		fmt.Print("Target tower: ")
-		tower, _ := reader.ReadString('\n')
-		tower = strings.TrimSpace(tower)
-
-		// Clear any input buffer before sending command
-		conn.Write([]byte("DEPLOY|" + troop + "|" + tower + "\n"))
-		fmt.Println("[Sending deploy command...]")
-		// Return to listening for server messages
-		return
-	} else if cmd == "3" {
-		fmt.Println("Exiting game...")
-		os.Exit(0)
-	} else if cmd != "" {
-		fmt.Println("Lệnh không hợp lệ, vui lòng thử lại.")
-		// Return to the turn loop to receive proper instructions
+		// Không thực hiện thêm hành động nào, trở về chế độ lắng nghe
 		return
 	}
 }

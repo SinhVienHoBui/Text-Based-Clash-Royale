@@ -550,19 +550,19 @@ func handleDeploy(username, troopName, towerName string) string {
 			p.Turn = false
 		}
 	}
-
 	// 1. First send attack result
 	attackResult := fmt.Sprintf("ATTACK_RESULT|%s|%s|%d|%d", troopName, towerName, damage, tower.HP)
 	sendToUser(username, attackResult)
 	sendToUser(enemyName, attackResult)
 
 	// 2. Then send updated state with a small delay to both players
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	stateMsg := "STATE|" + formatGameState(game, username)
 	sendToUser(username, stateMsg)
 	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
-	// 3. Finally, send turn notifications with a delay
-	time.Sleep(100 * time.Millisecond)
+
+	// 3. Finally, send turn notifications with a longer delay
+	time.Sleep(300 * time.Millisecond)
 	// Send appropriate turn message to each player
 	for playerName := range game.Players {
 		if playerName == game.TurnUser {
