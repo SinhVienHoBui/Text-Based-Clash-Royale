@@ -55,7 +55,7 @@ func main() {
 		break
 	} // end login/register	// After login/register, allow game creation/joining
 	for {
-		fmt.Println("1. Create Game\n2. List/Join Game\n3. Exit Client\nChoose:")
+		fmt.Println("1. Create Game\n2. List/Join Game\n3. Exit\nChoose:")
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
 		if choice == "3" {
@@ -227,7 +227,7 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 
 	// Chỉ hiển thị menu cho người đang có lượt
 	if myTurn {
-		fmt.Print("Enter command: 1. Deploy  3. Exit\n> ")
+		fmt.Print("Enter command: 1. Deploy  3. Exit Game\n> ")
 
 		cmd, _ := reader.ReadString('\n')
 		cmd = strings.TrimSpace(cmd)
