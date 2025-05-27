@@ -53,13 +53,15 @@ func main() {
 			}
 		}
 		break
-	} // end login/register
-	// After login/register, allow game creation/joining
+	} // end login/register	// After login/register, allow game creation/joining
 	for {
-		fmt.Println("1. Create Game\n2. List/Join Game\nChoose:")
+		fmt.Println("1. Create Game\n2. List/Join Game\n3. Exit Client\nChoose:")
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
-		if choice == "1" {
+		if choice == "3" {
+			fmt.Println("Exiting client. Goodbye!")
+			os.Exit(0)
+		} else if choice == "1" {
 			fmt.Println("Select game mode: 1. Simple  2. Enhanced")
 			mode, _ := reader.ReadString('\n')
 			mode = strings.TrimSpace(mode)
@@ -164,7 +166,9 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		} else if strings.HasPrefix(msg, "GAME_END|") {
 			fmt.Println("[Game End]")
 			fmt.Println(msg)
-			os.Exit(0)
+			fmt.Println("Returning to main menu...")
+			// Return to main menu instead of terminating
+			return
 		} else if strings.HasPrefix(msg, "TURN|Your turn!") {
 			myTurn = true
 			fmt.Println("[Turn Update] Your turn!")
@@ -243,7 +247,9 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 			return
 		} else if cmd == "3" {
 			fmt.Println("Exiting game...")
-			os.Exit(0)
+			conn.Write([]byte("EXIT_GAME\n"))
+			fmt.Println("Returning to main menu...")
+			return
 		} else if cmd != "" {
 			fmt.Println("Lệnh không hợp lệ, vui lòng thử lại.")
 			// Return to the turn loop to receive proper instructions
@@ -257,7 +263,9 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 
 		if cmd == "exit" || cmd == "3" {
 			fmt.Println("Exiting game...")
-			os.Exit(0)
+			conn.Write([]byte("EXIT_GAME\n"))
+			fmt.Println("Returning to main menu...")
+			return
 		}
 
 		// Không thực hiện thêm hành động nào, trở về chế độ lắng nghe

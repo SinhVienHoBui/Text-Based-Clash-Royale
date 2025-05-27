@@ -262,6 +262,14 @@ func handleConnection(conn net.Conn) {
 			}
 			msg := getGameState(currentUser.Username)
 			send(msg)
+		case "EXIT_GAME":
+			if currentUser == nil {
+				send("ERR|Login first")
+				continue
+			}
+			handlePlayerExit(currentUser.Username)
+			// Send GAME_END to the player who exited as well, to ensure they return to menu
+			send("GAME_END|You have exited the game")
 		default:
 			send("ERR|Unknown command")
 		}
@@ -644,12 +652,13 @@ func formatGameState(g *GameState, username string) string {
 		}
 		sb.WriteString("  Troops:\n")
 		for _, tr := range ps.Troops {
-			alive := "No"
-			if tr.HP > 0 {
-				alive = "Yes"
+			// Special display for Queen
+			if tr.Name == "Queen" {
+				sb.WriteString(fmt.Sprintf("    %s: Heals the tower with lowest HP by 300\n", tr.Name))
+			} else {
+				sb.WriteString(fmt.Sprintf("    %s: HP=%d ATK=%d DEF=%d\n",
+					tr.Name, tr.HP, tr.ATK, tr.DEF))
 			}
-			sb.WriteString(fmt.Sprintf("    %s: HP=%d ATK=%d DEF=%d Active=%s\n",
-				tr.Name, tr.HP, tr.ATK, tr.DEF, alive))
 		}
 	}
 	sb.WriteString(fmt.Sprintf("Current turn: %s\n", g.TurnUser))
@@ -1016,4 +1025,77 @@ func getEnhancedGameState(username string) string {
 		}
 	}
 	return "ERR|Not in game"
+}
+
+// Helper function to handle a player exiting the game
+func handlePlayerExit(username string) {
+	// First check if the player is in a simple game
+	gamesLock.Lock()
+	var gameFound *GameState
+	var gameRoomID string
+	var opponent string
+
+	for roomID, g := range games {
+		if _, ok := g.Players[username]; ok {
+			gameFound = g
+			gameRoomID = roomID
+
+			// Find opponent name
+			for uname := range g.Players {
+				if uname != username {
+					opponent = uname
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if gameFound != nil {
+		// Notify opponent that this player has left
+		if opponent != "" {
+			// Send GAME_END to opponent to return them to the menu
+			sendToUser(opponent, "GAME_END|Your opponent has left the game")
+		}
+
+		// Remove the game
+		delete(games, gameRoomID)
+		gamesLock.Unlock()
+		return
+	}
+	gamesLock.Unlock()
+
+	// Check if player is in an enhanced game
+	enhancedGamesLock.Lock()
+	var enhancedGameFound *EnhancedGameState
+	var enhancedGameRoomID string
+	opponent = ""
+
+	for roomID, g := range enhancedGames {
+		if _, ok := g.Players[username]; ok {
+			enhancedGameFound = g
+			enhancedGameRoomID = roomID
+
+			// Find opponent name
+			for uname := range g.Players {
+				if uname != username {
+					opponent = uname
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if enhancedGameFound != nil {
+		// Notify opponent that this player has left
+		if opponent != "" {
+			// Send GAME_END to opponent to return them to the menu
+			sendToUser(opponent, "GAME_END|Your opponent has left the game")
+		}
+
+		// Remove the game
+		delete(enhancedGames, enhancedGameRoomID)
+	}
+	enhancedGamesLock.Unlock()
 }
