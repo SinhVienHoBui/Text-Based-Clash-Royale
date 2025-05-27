@@ -491,14 +491,16 @@ func handleDeploy(username, troopName, towerName string) string {
 	player := game.Players[username]
 	var troop *Troop
 	for _, t := range player.Troops {
-		if t.Name == troopName && t.HP > 0 {
+		// Special case for Queen who can be used even with HP=0
+		if t.Name == troopName && (t.HP > 0 || t.Name == "Queen") {
 			troop = t
 			break
 		}
 	}
 	if troop == nil {
 		return "ERR|Invalid or dead troop"
-	} // Find target tower
+	}
+	// Find target tower
 	var enemyName string
 	for uname := range game.Players {
 		if uname != username {
@@ -567,34 +569,32 @@ func handleDeploy(username, troopName, towerName string) string {
 	attackResult := fmt.Sprintf("ATTACK_RESULT|%s|%s|%d|%d", troopName, towerName, damage, tower.HP)
 	sendToUser(username, attackResult)
 	sendToUser(enemyName, attackResult)
-
 	// 2. Then send updated state with a small delay to both players
 	time.Sleep(200 * time.Millisecond)
 	stateMsg := "STATE|" + formatGameState(game, username)
 	sendToUser(username, stateMsg)
-	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName)) // 3. Check if player has Queen, activate healing ability after every turn
-	// Queen will always be active as she doesn't need to attack
-	for _, tr := range player.Troops {
-		if tr.Name == "Queen" {
-			// Find tower with lowest HP to heal
-			minHP := 999999
-			var healTower *Tower
-			for _, t := range player.Towers {
-				if t.HP > 0 && t.HP < minHP {
-					minHP = t.HP
-					healTower = t
-				}
-			}
-			// Apply healing effect if found a valid tower to heal
-			if healTower != nil {
-				healAmount := 300 // Heal by 300 HP
-				healTower.HP += healAmount
+	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
 
-				// Notify players about the healing
-				healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
-				sendToUser(username, healMsg)
-				sendToUser(enemyName, healMsg)
+	// 3. Check if the deployed troop is a Queen, and if so, activate healing ability
+	if troop.Name == "Queen" {
+		// Find tower with lowest HP to heal
+		minHP := 999999
+		var healTower *Tower
+		for _, t := range player.Towers {
+			if t.HP > 0 && t.HP < minHP {
+				minHP = t.HP
+				healTower = t
 			}
+		}
+		// Apply healing effect if found a valid tower to heal
+		if healTower != nil {
+			healAmount := 300 // Heal by 300 HP
+			healTower.HP += healAmount
+
+			// Notify players about the healing
+			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
+			sendToUser(username, healMsg)
+			sendToUser(enemyName, healMsg)
 		}
 	}
 
@@ -887,7 +887,8 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 	ps := game.Players[username]
 	var troop *Troop
 	for _, t := range ps.Troops {
-		if t.Name == troopName && t.HP > 0 {
+		// Special case for Queen who can be used even with HP=0
+		if t.Name == troopName && (t.HP > 0 || t.Name == "Queen") {
 			troop = t
 			break
 		}
@@ -961,17 +962,9 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			game.Winner = username
 			msg += ";GAME_END|" + username + "|King destroyed"
 		}
-	} // Add Queen's heal special in handleEnhancedDeploy	// The Queen's healing ability - will always be active no matter if it was the troop used
-	// Find if player has a Queen
-	var hasQueen bool
-	for _, t := range ps.Troops {
-		if t.Name == "Queen" {
-			hasQueen = true
-			break
-		}
-	}
-
-	if hasQueen {
+	} // Add Queen's heal special in handleEnhancedDeploy when the Queen is deployed
+	// The Queen's healing ability only activates when Queen is deployed
+	if troop.Name == "Queen" {
 		// Heal the friendly tower with lowest HP by 300
 		minHP := 99999
 		var healTower *Tower
