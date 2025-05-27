@@ -498,8 +498,7 @@ func handleDeploy(username, troopName, towerName string) string {
 	}
 	if troop == nil {
 		return "ERR|Invalid or dead troop"
-	}
-	// Find target tower
+	} // Find target tower
 	var enemyName string
 	for uname := range game.Players {
 		if uname != username {
@@ -508,6 +507,20 @@ func handleDeploy(username, troopName, towerName string) string {
 		}
 	}
 	enemy := game.Players[enemyName]
+	// Check tower attack order - must destroy Guard1 before attacking Guard2 or King
+	if towerName == "Guard2" || towerName == "King" {
+		if enemy.Towers["Guard1"].HP > 0 {
+			return "ERR|Must destroy Guard1 tower first before attacking Guard2 or King"
+		}
+	}
+
+	// If attacking King, also check Guard2
+	if towerName == "King" {
+		if enemy.Towers["Guard2"].HP > 0 {
+			return "ERR|Must destroy Guard2 tower first before attacking King"
+		}
+	}
+
 	tower, ok := enemy.Towers[towerName]
 	if !ok || tower.HP <= 0 {
 		return "ERR|Invalid or destroyed tower"
@@ -559,9 +572,33 @@ func handleDeploy(username, troopName, towerName string) string {
 	time.Sleep(200 * time.Millisecond)
 	stateMsg := "STATE|" + formatGameState(game, username)
 	sendToUser(username, stateMsg)
-	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
+	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName)) // 3. Check if player has Queen, activate healing ability after every turn
+	// Queen will always be active as she doesn't need to attack
+	for _, tr := range player.Troops {
+		if tr.Name == "Queen" {
+			// Find tower with lowest HP to heal
+			minHP := 999999
+			var healTower *Tower
+			for _, t := range player.Towers {
+				if t.HP > 0 && t.HP < minHP {
+					minHP = t.HP
+					healTower = t
+				}
+			}
+			// Apply healing effect if found a valid tower to heal
+			if healTower != nil {
+				healAmount := 300 // Heal by 300 HP
+				healTower.HP += healAmount
 
-	// 3. Finally, send turn notifications with a longer delay
+				// Notify players about the healing
+				healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
+				sendToUser(username, healMsg)
+				sendToUser(enemyName, healMsg)
+			}
+		}
+	}
+
+	// 4. Finally, send turn notifications with a longer delay
 	time.Sleep(300 * time.Millisecond)
 	// Send appropriate turn message to each player
 	for playerName := range game.Players {
@@ -880,13 +917,20 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 	}
 	if opp == nil {
 		return "ERR|No opponent"
-	}
-	// Check tower attack order
+	} // Check tower attack order
 	if targetTower == "Guard2" || targetTower == "King" {
 		if opp.Towers["Guard1"].HP > 0 {
-			return "ERR|Must destroy Guard1 first"
+			return "ERR|Must destroy Guard1 tower first"
 		}
 	}
+
+	// If attacking King, also check Guard2
+	if targetTower == "King" {
+		if opp.Towers["Guard2"].HP > 0 {
+			return "ERR|Must destroy Guard2 tower first"
+		}
+	}
+
 	tower := opp.Towers[targetTower]
 	if tower == nil || tower.HP <= 0 {
 		return "ERR|Invalid or destroyed tower"
@@ -917,9 +961,17 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			game.Winner = username
 			msg += ";GAME_END|" + username + "|King destroyed"
 		}
+	} // Add Queen's heal special in handleEnhancedDeploy	// The Queen's healing ability - will always be active no matter if it was the troop used
+	// Find if player has a Queen
+	var hasQueen bool
+	for _, t := range ps.Troops {
+		if t.Name == "Queen" {
+			hasQueen = true
+			break
+		}
 	}
-	// Add Queen's heal special in handleEnhancedDeploy
-	if troop.Name == "Queen" && tspec.Special == "heal" {
+
+	if hasQueen {
 		// Heal the friendly tower with lowest HP by 300
 		minHP := 99999
 		var healTower *Tower
@@ -930,9 +982,31 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			}
 		}
 		if healTower != nil {
-			healTower.HP += 300
-			msg := fmt.Sprintf("QUEEN_HEAL|%s|%d", healTower.Name, healTower.HP)
-			return msg
+			healAmount := 300
+			healTower.HP += healAmount
+			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
+
+			// Send heal notification to both players
+			if v, ok := userConns.Load(username); ok {
+				if conn, ok2 := v.(net.Conn); ok2 {
+					conn.Write([]byte(healMsg + "\n"))
+				}
+			}
+			// Find opponent name to notify them too
+			var oppName string
+			for uname := range game.Players {
+				if uname != username {
+					oppName = uname
+					break
+				}
+			}
+			if oppName != "" {
+				if v, ok := userConns.Load(oppName); ok {
+					if conn, ok2 := v.(net.Conn); ok2 {
+						conn.Write([]byte(healMsg + "\n"))
+					}
+				}
+			}
 		}
 	}
 	return msg

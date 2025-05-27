@@ -149,6 +149,18 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		} else if strings.HasPrefix(msg, "ATTACK_RESULT|") {
 			fmt.Println("[Attack Result]")
 			fmt.Println(msg)
+		} else if strings.HasPrefix(msg, "QUEEN_HEAL|") {
+			parts := strings.Split(msg, "|")
+			if len(parts) >= 5 {
+				playerName := parts[1]
+				towerName := parts[2]
+				healAmount := parts[3]
+				newHP := parts[4]
+				fmt.Printf("[Queen's Healing] %s's Queen healed %s tower for %s HP (new HP: %s)\n",
+					playerName, towerName, healAmount, newHP)
+			} else {
+				fmt.Println("[Queen's Healing]", msg)
+			}
 		} else if strings.HasPrefix(msg, "GAME_END|") {
 			fmt.Println("[Game End]")
 			fmt.Println(msg)
@@ -173,6 +185,20 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		} else if strings.HasPrefix(msg, "ERR|") {
 			// Handle error messages
 			fmt.Println("[Error]", msg[4:])
+			// If there was an error during player's turn, prompt for new input
+			if myTurn && !waitingForInput {
+				waitingForInput = true
+				go func() {
+					fmt.Println("[Error detected! Please try again with a valid input]")
+					// Give more informative message based on common errors
+					if strings.Contains(msg, "Must destroy Guard1") || strings.Contains(msg, "Must destroy Guard2") {
+						fmt.Println("[Reminder: You must destroy Guard1 Tower before attacking Guard2 or King,")
+						fmt.Println(" and must destroy Guard2 before attacking King]")
+					}
+					inGameLoop(scanner, conn, mode, myTurn, currentState)
+					waitingForInput = false
+				}()
+			}
 		} else if strings.HasPrefix(msg, "ACK|") {
 			// Chỉ hiển thị ACK khi đó thực sự là xác nhận của lệnh mình đã gửi
 			if myTurn {
