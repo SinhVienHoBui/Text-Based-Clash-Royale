@@ -202,10 +202,18 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 			// Signal enhanced input loop to stop and wait for it to exit
 			if isEnhanced || enhancedDetected {
 				if enhancedInputStop != nil {
-					close(enhancedInputStop)
-					// Tạm dừng một chút để đảm bảo goroutine dừng lại
-					time.Sleep(300 * time.Millisecond)
+					// Only close if not already closed
+					select {
+					case <-enhancedInputStop:
+						// already closed, do nothing
+					default:
+						close(enhancedInputStop)
+						time.Sleep(300 * time.Millisecond)
+					}
 				}
+				// Flush any leftover input from stdin to avoid eating the first menu input
+				reader := bufio.NewReader(os.Stdin)
+				reader.ReadString('\n')
 			}
 
 			// Reset các biến trạng thái để tránh enhanced goroutine còn hoạt động
