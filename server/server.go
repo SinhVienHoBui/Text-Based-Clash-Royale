@@ -524,6 +524,13 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	}
 	rand.Seed(time.Now().UnixNano())
 	for _, uname := range []string{room.Host, room.Guest} {
+		// Get player level for stat scaling
+		progress := loadProgress(uname)
+		level := 1
+		if progress != nil {
+			level = progress.Level
+		}
+		mult := 1.0 + 0.1*float64(level-1)
 		// Randomly select 3 unique troops for each player
 		troopNames := make([]string, len(availableTroopNames))
 		copy(troopNames, availableTroopNames)
@@ -534,9 +541,9 @@ func startGame(roomID, username string, conn net.Conn) bool {
 			spec := troopSpecMap[tn]
 			troops = append(troops, &Troop{
 				Name:  spec.Name,
-				HP:    spec.HP,
-				ATK:   spec.ATK,
-				DEF:   spec.DEF,
+				HP:    int(float64(spec.HP) * mult),
+				ATK:   int(float64(spec.ATK) * mult),
+				DEF:   int(float64(spec.DEF) * mult),
 				Owner: uname,
 			})
 		}
@@ -545,9 +552,9 @@ func startGame(roomID, username string, conn net.Conn) bool {
 		for _, ts := range towerSpecs {
 			towers[ts.Name] = &Tower{
 				Name: ts.Name,
-				HP:   ts.HP,
-				ATK:  ts.ATK,
-				DEF:  ts.DEF,
+				HP:   int(float64(ts.HP) * mult),
+				ATK:  int(float64(ts.ATK) * mult),
+				DEF:  int(float64(ts.DEF) * mult),
 			}
 		}
 		players[uname] = &PlayerState{
@@ -757,12 +764,13 @@ func handleEnhancedBuy(username, troopName string) string {
 		return "ERR|Not enough mana"
 	}
 	ps.Mana -= tspec.MANA
-	// Thêm troop vào danh sách troops
+	// Stat scaling by user level
+	mult := 1.0 + 0.1*float64(ps.Level-1)
 	ps.Troops = append(ps.Troops, &Troop{
 		Name:  tspec.Name,
-		HP:    tspec.HP,
-		ATK:   tspec.ATK,
-		DEF:   tspec.DEF,
+		HP:    int(float64(tspec.HP) * mult),
+		ATK:   int(float64(tspec.ATK) * mult),
+		DEF:   int(float64(tspec.DEF) * mult),
 		Owner: username,
 	})
 	return "ACK|Buy successful"
@@ -899,13 +907,18 @@ func startEnhancedGame(roomID string) bool {
 	players := map[string]*EnhancedPlayerState{}
 	for _, uname := range []string{room.Host, room.Guest} {
 		progress := loadProgress(uname)
+		level := 1
+		if progress != nil {
+			level = progress.Level
+		}
+		mult := 1.0 + 0.1*float64(level-1)
 		towers := map[string]*Tower{}
 		for _, v := range towerSpecs {
 			lv := progress.TowerLv[v.Name]
 			if lv == 0 {
 				lv = 1
 			}
-			mult := 1.0 + 0.1*float64(lv-1)
+			// Multiply by user level, not just tower level
 			towers[v.Name] = &Tower{
 				Name: v.Name,
 				HP:   int(float64(v.HP) * mult),
@@ -934,9 +947,9 @@ func startEnhancedGame(roomID string) bool {
 			}
 			troops = append(troops, &Troop{
 				Name:  tspec.Name,
-				HP:    tspec.HP,
-				ATK:   tspec.ATK,
-				DEF:   tspec.DEF,
+				HP:    int(float64(tspec.HP) * mult),
+				ATK:   int(float64(tspec.ATK) * mult),
+				DEF:   int(float64(tspec.DEF) * mult),
 				Owner: uname,
 			})
 		}
