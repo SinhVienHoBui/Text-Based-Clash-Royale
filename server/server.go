@@ -583,6 +583,36 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	return true
 }
 
+// ///////////// Đếm số troop còn sống
+func countAliveTroops(ps *PlayerState) int {
+	c := 0
+	for _, tr := range ps.Troops {
+		if tr.HP > 0 {
+			c++
+		}
+	}
+	return c
+}
+
+func countAliveTowers(towers map[string]*Tower) int {
+	cnt := 0
+	for _, tw := range towers {
+		if tw.HP > 0 {
+			cnt++
+		}
+	}
+	return cnt
+}
+
+// ///////////////// Tính tổng HP của các tower
+func sumTowerHP(towers map[string]*Tower) int {
+	total := 0
+	for _, tw := range towers {
+		total += tw.HP
+	}
+	return total
+}
+
 func handleDeploy(username, troopName, towerName string) string {
 	gamesLock.Lock()
 	defer gamesLock.Unlock()
@@ -658,6 +688,56 @@ func handleDeploy(username, troopName, towerName string) string {
 		tower.HP = 0
 	}
 
+	////////// --- CHECK TROOP =0 ---
+	if countAliveTroops(player) == 0 || countAliveTroops(enemy) == 0 {
+		// Đếm trụ còn sống của mỗi bên
+		aliveP := countAliveTowers(player.Towers)
+		aliveE := countAliveTowers(enemy.Towers)
+
+		// 2.1) If tower diff → tower > -> win
+		if aliveP != aliveE {
+			var winner, loser string
+			if aliveP > aliveE {
+				winner = username
+				loser = enemyName
+			} else {
+				winner = enemyName
+				loser = username
+			}
+
+			game.Over = true
+			game.Winner = winner
+			sendToUser(winner, fmt.Sprintf("GAME_END|You win! You have more towers alive (%d vs %d).", aliveP, aliveE))
+			sendToUser(loser, fmt.Sprintf("GAME_END|You lose! Fewer towers alive (%d vs %d).", aliveE, aliveP))
+
+			// 2.2) If tower same → cal HP
+		} else {
+			hpP := sumTowerHP(player.Towers)
+			hpE := sumTowerHP(enemy.Towers)
+
+			switch {
+			case hpP > hpE:
+				game.Over = true
+				game.Winner = username
+				sendToUser(username, "GAME_END|You win! Equal tower count but higher total HP.")
+				sendToUser(enemyName, "GAME_END|You lose! Equal tower count but lower total HP.")
+
+			case hpE > hpP:
+				game.Over = true
+				game.Winner = enemyName
+				sendToUser(enemyName, "GAME_END|You win! Equal tower count but higher total HP.")
+				sendToUser(username, "GAME_END|You lose! Equal tower count but lower total HP.")
+
+			default: // hòa
+				game.Over = true
+				sendToUser(username, "GAME_END|Draw! Equal tower count and equal total HP.")
+				sendToUser(enemyName, "GAME_END|Draw! Equal tower count and equal total HP.")
+			}
+		}
+
+		return "STATE|" + formatGameState(game, username)
+	}
+	////////////// --- END CHECK ---
 	// Tower counter-attack logic - tower attacks troop
 	counterDamage := tower.ATK - troop.DEF
 	if counterDamage < 0 {
