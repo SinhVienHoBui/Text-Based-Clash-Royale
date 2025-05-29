@@ -202,14 +202,8 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 			// Signal enhanced input loop to stop and wait for it to exit
 			if isEnhanced || enhancedDetected {
 				if enhancedInputStop != nil {
-					// Only close if not already closed
-					select {
-					case <-enhancedInputStop:
-						// already closed, do nothing
-					default:
-						close(enhancedInputStop)
-						time.Sleep(300 * time.Millisecond)
-					}
+					close(enhancedInputStop)
+					time.Sleep(300 * time.Millisecond)
 				}
 				// Flush any leftover input from stdin to avoid eating the first menu input
 				reader := bufio.NewReader(os.Stdin)
@@ -404,7 +398,7 @@ func enhancedInputLoop(conn net.Conn) {
 		select {
 		case <-stopCh:
 			isRunning = false
-			fmt.Println("[Enhanced mode stopped]")
+			fmt.Println("[Double enter to return to menu]")
 			return
 
 		case line := <-inputCh:
