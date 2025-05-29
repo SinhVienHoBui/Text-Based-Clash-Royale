@@ -306,19 +306,17 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 		fmt.Println("  Towers:")
 		for _, t := range []string{"Guard1", "Guard2", "King"} {
 			tower := p.Towers[t]
-			// Show CRIT for tower
 			crit := ""
 			if t == "King" {
-				crit = "CRIT: 10%"
+				crit = "CRIT: 10% (Tower attacks troop)"
 			} else {
-				crit = "CRIT: 5%"
+				crit = "CRIT: 5% (Tower attacks troop)"
 			}
 			fmt.Printf("    %s: HP=%d ATK=%d DEF=%d %s\n", tower.Name, tower.HP, tower.ATK, tower.DEF, crit)
 		}
-		fmt.Println("  Troops:")
+		fmt.Println("  Troops you own:")
 		for _, tr := range p.Troops {
 			mana := 0
-			crit := ""
 			switch tr.Name {
 			case "Pawn":
 				mana = 3
@@ -333,9 +331,24 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 			case "Queen":
 				mana = 5
 			}
-			fmt.Printf("    %s: HP=%d ATK=%d DEF=%d MANA=%d %s\n", tr.Name, tr.HP, tr.ATK, tr.DEF, mana, crit)
+			if tr.Name == "Queen" {
+				fmt.Printf("    %s: Special (Heal) - always available, MANA=%d\n", tr.Name, mana)
+			} else if tr.HP > 0 {
+				fmt.Printf("    %s: HP=%d ATK=%d DEF=%d MANA=%d\n", tr.Name, tr.HP, tr.ATK, tr.DEF, mana)
+			} else {
+				fmt.Printf("    %s: DEAD\n", tr.Name)
+			}
 		}
 	}
+	// Hiển thị danh sách các troops có thể mua
+	fmt.Println("-----------------------------------------")
+	fmt.Println("Available troops to buy:")
+	fmt.Println("  Pawn   (HP: 50,  ATK: 150, DEF: 100, MANA: 3)")
+	fmt.Println("  Bishop (HP: 100, ATK: 200, DEF: 150, MANA: 4)")
+	fmt.Println("  Rook   (HP: 250, ATK: 200, DEF: 200, MANA: 5)")
+	fmt.Println("  Knight (HP: 200, ATK: 300, DEF: 150, MANA: 5)")
+	fmt.Println("  Prince (HP: 500, ATK: 400, DEF: 300, MANA: 6)")
+	fmt.Println("  Queen  (Special: Heal, MANA: 5)")
 	if state.EndTime != "" {
 		end, _ := time.Parse(time.RFC3339, state.EndTime)
 		now := time.Now()
@@ -345,7 +358,7 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 		}
 	}
 	fmt.Println("=========================================")
-	fmt.Println("[ENHANCED MODE] Type: deploy <troop> <tower> | exit")
+	fmt.Println("[ENHANCED MODE] Type: buy <troop> | deploy <troop> <tower> | exit")
 }
 
 // Completely rewritten to fix issues with input handling and game ending
@@ -422,8 +435,17 @@ func enhancedInputLoop(conn net.Conn) {
 				} else {
 					fmt.Println("Usage: deploy <troop> <tower>")
 				}
+			} else if strings.HasPrefix(line, "buy ") {
+				parts := strings.Fields(line)
+				if len(parts) == 2 {
+					cmd := fmt.Sprintf("BUY|%s\n", parts[1])
+					conn.Write([]byte(cmd))
+					fmt.Println("[Sent buy command]")
+				} else {
+					fmt.Println("Usage: buy <troop>")
+				}
 			} else {
-				fmt.Println("Unknown command. Use: deploy <troop> <tower> or exit")
+				fmt.Println("Unknown command. Use: buy <troop> | deploy <troop> <tower> | exit")
 			}
 		}
 	}

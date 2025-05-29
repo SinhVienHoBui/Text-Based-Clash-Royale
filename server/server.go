@@ -352,6 +352,17 @@ func handleConnection(conn net.Conn) {
 			send("GAME_END|You have exited the game")
 		default:
 			send("ERR|Unknown command")
+		case "BUY":
+			if currentUser == nil {
+				send("ERR|Login first")
+				continue
+			}
+			if len(parts) < 2 {
+				send("ERR|Usage: BUY|troop_name")
+				continue
+			}
+			response := handleEnhancedBuy(currentUsername, parts[1])
+			send(response)
 		}
 	}
 	if currentUsername != "" {
@@ -714,6 +725,49 @@ func handleDeploy(username, troopName, towerName string) string {
 	return "ACK|Deploy successful"
 }
 
+// Enhanced BUY: mua troop tốn mana, thêm vào danh sách troops đã mua
+func handleEnhancedBuy(username, troopName string) string {
+	enhancedGamesLock.Lock()
+	defer enhancedGamesLock.Unlock()
+	var game *EnhancedGameState
+	for _, g := range enhancedGames {
+		if g.Players[username] != nil {
+			game = g
+			break
+		}
+	}
+	if game == nil {
+		return "ERR|Not in enhanced game"
+	}
+	ps := game.Players[username]
+	// Tìm troop spec
+	var tspec TroopSpec
+	found := false
+	for _, t := range troopSpecs {
+		if t.Name == troopName {
+			tspec = t
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "ERR|No such troop"
+	}
+	if ps.Mana < tspec.MANA {
+		return "ERR|Not enough mana"
+	}
+	ps.Mana -= tspec.MANA
+	// Thêm troop vào danh sách troops
+	ps.Troops = append(ps.Troops, &Troop{
+		Name:  tspec.Name,
+		HP:    tspec.HP,
+		ATK:   tspec.ATK,
+		DEF:   tspec.DEF,
+		Owner: username,
+	})
+	return "ACK|Buy successful"
+}
+
 // Helper to send message to a user if connected
 func sendToUser(username, msg string) {
 	if v, ok := userConns.Load(username); ok {
@@ -847,7 +901,6 @@ func startEnhancedGame(roomID string) bool {
 		progress := loadProgress(uname)
 		towers := map[string]*Tower{}
 		for _, v := range towerSpecs {
-			// Scale stats by level
 			lv := progress.TowerLv[v.Name]
 			if lv == 0 {
 				lv = 1
@@ -860,18 +913,30 @@ func startEnhancedGame(roomID string) bool {
 				DEF:  int(float64(v.DEF) * mult),
 			}
 		}
-		troops := []*Troop{}
+		// Phát 3 troops ngẫu nhiên đầu game
+		availableTroopNames := make([]string, 0, len(troopSpecs))
 		for _, t := range troopSpecs {
-			lv := progress.TroopLv[t.Name]
-			if lv == 0 {
-				lv = 1
+			availableTroopNames = append(availableTroopNames, t.Name)
+		}
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(availableTroopNames), func(i, j int) {
+			availableTroopNames[i], availableTroopNames[j] = availableTroopNames[j], availableTroopNames[i]
+		})
+		selected := availableTroopNames[:3]
+		troops := []*Troop{}
+		for _, tn := range selected {
+			var tspec TroopSpec
+			for _, t := range troopSpecs {
+				if t.Name == tn {
+					tspec = t
+					break
+				}
 			}
-			mult := 1.0 + 0.1*float64(lv-1)
 			troops = append(troops, &Troop{
-				Name:  t.Name,
-				HP:    int(float64(t.HP) * mult),
-				ATK:   int(float64(t.ATK) * mult),
-				DEF:   int(float64(t.DEF) * mult),
+				Name:  tspec.Name,
+				HP:    tspec.HP,
+				ATK:   tspec.ATK,
+				DEF:   tspec.DEF,
 				Owner: uname,
 			})
 		}
@@ -884,7 +949,6 @@ func startEnhancedGame(roomID string) bool {
 			Level:    progress.Level,
 			Progress: progress}
 	}
-
 	gs := &EnhancedGameState{
 		RoomID:         roomID,
 		Players:        players,
@@ -892,7 +956,7 @@ func startEnhancedGame(roomID string) bool {
 		Over:           false,
 		StartTime:      time.Now(),
 		EndTime:        time.Now().Add(3 * time.Minute),
-		AttackPatterns: make(map[string]string), // initialize attack pattern tracking
+		AttackPatterns: make(map[string]string),
 	}
 	enhancedGames[roomID] = gs
 	go enhancedGameLoop(roomID)
@@ -1022,30 +1086,25 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 		return "ERR|Game is over"
 	}
 	ps := game.Players[username]
+	// Lấy troop đã mua (không tạo mới, không trừ mana khi deploy)
 	var troop *Troop
 	for _, t := range ps.Troops {
-		// Special case for Queen who can be used even with HP=0
-		if t.Name == troopName && (t.HP > 0 || t.Name == "Queen") {
-			troop = t
-			break
+		if t.Name == troopName {
+			if t.Name == "Queen" {
+				// Queen luôn luôn deploy được, không quan tâm HP
+				troop = t
+				break
+			} else if t.HP > 0 {
+				troop = t
+				break
+			}
 		}
 	}
 	if troop == nil {
 		return "ERR|No such troop or dead"
 	}
-	// Check mana
-	var tspec TroopSpec
-	for _, t := range troopSpecs {
-		if t.Name == troopName {
-			spec := t
-			tspec = spec
-			break
-		}
-	}
-	if ps.Mana < tspec.MANA {
-		return "ERR|Not enough mana"
-	}
-	ps.Mana -= tspec.MANA // Find opponent
+	// Không kiểm tra/trừ mana ở đây nữa
+	// Find opponent
 	var opp *EnhancedPlayerState
 	var oppName string
 	for uname, p := range game.Players {
@@ -1086,7 +1145,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 	if tower == nil || tower.HP <= 0 {
 		return "ERR|Invalid or destroyed tower"
 	}
-	// CRIT logic
+	// CRIT logic (tower attacks troop)
 	critChance := 0.0
 	for _, t := range towerSpecs {
 		if t.Name == targetTower {
@@ -1095,16 +1154,27 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 		}
 	}
 	crit := rand.Float64() < critChance
+	// Troop attacks tower
 	atk := troop.ATK
-	if crit {
-		atk = int(float64(atk) * 1.2)
-	}
 	dmg := atk - tower.DEF
 	if dmg < 0 {
 		dmg = 0
 	}
 	tower.HP -= dmg
-	msg := fmt.Sprintf("ATTACK_RESULT|%s|%s|%d|%d|CRIT:%v", troop.Name, tower.Name, dmg, tower.HP, crit)
+	// Tower phản công troop (có CRIT)
+	counterATK := tower.ATK
+	if crit {
+		counterATK = int(float64(counterATK) * 1.2)
+	}
+	counterDmg := counterATK - troop.DEF
+	if counterDmg < 0 {
+		counterDmg = 0
+	}
+	troop.HP -= counterDmg
+	if troop.HP < 0 {
+		troop.HP = 0
+	}
+	msg := fmt.Sprintf("ATTACK_RESULT|%s|%s|%d|%d|TOWER_HIT:%d|CRIT:%v|TROOP_HP:%d", troop.Name, tower.Name, dmg, tower.HP, counterDmg, crit, troop.HP)
 	if tower.HP <= 0 {
 		msg += "|DESTROYED"
 		if tower.Name == "King" {
@@ -1124,7 +1194,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 						}
 					}
 				}
-			} // Clean up game and room
+			}
 			delete(enhancedGames, roomID)
 			roomsLock.Lock()
 			delete(gameRooms, roomID)
@@ -1132,11 +1202,12 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			return "ACK|Deploy successful"
 		}
 	}
-	// Queen's heal
+	// Queen's heal (giống simple: chỉ heal cho Guard1 hoặc Guard2 nếu còn sống, chọn tower có HP thấp nhất)
 	if troop.Name == "Queen" {
 		minHP := 99999
 		var healTower *Tower
-		for _, t := range ps.Towers {
+		for _, tname := range []string{"Guard1", "Guard2"} {
+			t := ps.Towers[tname]
 			if t.HP > 0 && t.HP < minHP {
 				minHP = t.HP
 				healTower = t
@@ -1144,8 +1215,18 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 		}
 		if healTower != nil {
 			healAmount := 300
+			before := healTower.HP
 			healTower.HP += healAmount
-			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
+			// Ensure HP does not exceed max HP from specs
+			for _, tspec := range towerSpecs {
+				if tspec.Name == healTower.Name {
+					maxHP := tspec.HP
+					if healTower.HP > maxHP {
+						healTower.HP = maxHP
+					}
+				}
+			}
+			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healTower.HP-before, healTower.HP)
 			if v, ok := userConns.Load(username); ok {
 				if conn, ok2 := v.(net.Conn); ok2 {
 					conn.Write([]byte(healMsg + "\n"))
@@ -1157,7 +1238,8 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 				}
 			}
 		}
-	} // Send ATTACK_RESULT and updated STATE to both players
+	}
+	// Send ATTACK_RESULT and updated STATE to both players
 	for uname := range game.Players {
 		if v, ok := userConns.Load(uname); ok {
 			if conn, ok2 := v.(net.Conn); ok2 {
