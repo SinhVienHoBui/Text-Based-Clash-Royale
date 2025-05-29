@@ -3,13 +3,13 @@
     {
       "username": "idea",
       "password": "123456",
-      "exp": 106,
-      "level": 4
+      "exp": 12,
+      "level": 5
     },
     {
       "username": "thao",
       "password": "123456",
-      "exp": 78,
+      "exp": 88,
       "level": 3
     },
     {

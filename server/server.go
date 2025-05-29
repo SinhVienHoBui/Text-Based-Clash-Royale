@@ -1240,17 +1240,8 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 		if healTower != nil {
 			healAmount := 300
 			before := healTower.HP
-			healTower.HP += healAmount
-			// Ensure HP does not exceed max HP from specs
-			for _, tspec := range towerSpecs {
-				if tspec.Name == healTower.Name {
-					maxHP := tspec.HP
-					if healTower.HP > maxHP {
-						healTower.HP = maxHP
-					}
-				}
-			}
-			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healTower.HP-before, healTower.HP)
+			healTower.HP = before + healAmount // Always add 300, no cap
+			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
 			if v, ok := userConns.Load(username); ok {
 				if conn, ok2 := v.(net.Conn); ok2 {
 					conn.Write([]byte(healMsg + "\n"))
