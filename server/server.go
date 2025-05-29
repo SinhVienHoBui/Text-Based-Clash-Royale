@@ -144,48 +144,52 @@ var (
 )
 
 func main() {
-	fmt.Println("TCR Server starting...")
-	ln, err := net.Listen("tcp", ":9000")
+	fmt.Println("TCR Server starting...") // Print server start message
+	ln, err := net.Listen("tcp", ":9000") // Listen for TCP connections on port 9000
 	if err != nil {
-		fmt.Println("Error starting server:", err)
-		os.Exit(1)
+		fmt.Println("Error starting server:", err) // Print error if cannot start
+		os.Exit(1)                                 // Exit if error
 	}
-	defer ln.Close()
-	fmt.Println("Server listening on :9000")
+	defer ln.Close()                         // Ensure listener is closed on exit
+	fmt.Println("Server listening on :9000") // Print listening message
 	for {
-		conn, err := ln.Accept()
+		conn, err := ln.Accept() // Accept new connection
 		if err != nil {
-			fmt.Println("Accept error:", err)
-			continue
+			fmt.Println("Accept error:", err) // Print error if accept fails
+			continue                          // Continue to next iteration
 		}
-		go handleConnection(conn)
+		go handleConnection(conn) // Handle connection in a new goroutine
 	}
 }
 
+// handleConnection handles all communication with a single client connection
+// conn: the TCP connection to the client
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer conn.Close() // Ensure connection is closed when function exits
+	// send is a helper function to send a message to the client, always appending a newline
 	send := func(msg string) { conn.Write([]byte(msg + "\n")) }
+	// scanner reads lines from the client connection
 	scanner := bufio.NewScanner(conn)
-	var currentUser *User
-	var currentUsername string
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "|", 3)
-		cmd := strings.ToUpper(parts[0])
+	var currentUser *User      // Track the currently logged-in user (if any)
+	var currentUsername string // Track the username of the current user
+	for scanner.Scan() {       // Main loop: read each line from client
+		line := scanner.Text()                // Read a line from client
+		parts := strings.SplitN(line, "|", 3) // Split command by |
+		cmd := strings.ToUpper(parts[0])      // Get command type (always uppercase)
 		switch cmd {
 		case "LOGIN":
 			if len(parts) < 3 {
-				send("ERR|Usage: LOGIN|username|password")
+				send("ERR|Usage: LOGIN|username|password") // Not enough arguments
 				continue
 			}
-			user := authenticate(parts[1], parts[2])
+			user := authenticate(parts[1], parts[2]) // Check credentials
 			if user != nil {
-				currentUser = user
-				currentUsername = user.Username
-				userConns.Store(user.Username, conn)
-				send("ACK|Login successful")
+				currentUser = user                   // Save user struct
+				currentUsername = user.Username      // Save username
+				userConns.Store(user.Username, conn) // Store connection in global map
+				send("ACK|Login successful")         // Notify client
 			} else {
-				send("ERR|Invalid credentials")
+				send("ERR|Invalid credentials") // Wrong username/password
 			}
 		case "REGISTER":
 			if len(parts) < 3 {
@@ -202,13 +206,13 @@ func handleConnection(conn net.Conn) {
 				send("ERR|Login first")
 				continue
 			}
-			mode := "SIMPLE"
+			mode := "SIMPLE" // Default mode
 			if len(parts) > 1 {
-				mode = strings.ToUpper(parts[1])
+				mode = strings.ToUpper(parts[1]) // Use provided mode if present
 			}
-			roomID := createGameRoom(currentUser.Username, mode)
-			send("ACK|GAME_CREATED|" + roomID)
-			// Nếu là ENHANCED thì tự động chờ guest vào rồi start game
+			roomID := createGameRoom(currentUser.Username, mode) // Create new room
+			send("ACK|GAME_CREATED|" + roomID)                   // Notify client
+			// If ENHANCED mode, wait for guest and start game automatically
 			if mode == "ENHANCED" {
 				go func() {
 					for {
@@ -232,13 +236,13 @@ func handleConnection(conn net.Conn) {
 					}
 				}()
 			}
-			continue
+			continue // Skip rest of loop
 		case "LIST_GAMES":
 			if currentUser == nil {
 				send("ERR|Login first")
 				continue
 			}
-			list := listGameRooms()
+			list := listGameRooms() // Get available rooms
 			send("GAMES|" + list)
 		case "JOIN_GAME":
 			if currentUser == nil || len(parts) < 2 {
@@ -247,17 +251,14 @@ func handleConnection(conn net.Conn) {
 			}
 			ok := joinGameRoom(parts[1], currentUser.Username)
 			if ok {
-				// Khi đủ 2 người, tự động start game và gửi ACK|GAME_STARTED cho cả hai
 				room := gameRooms[parts[1]]
 				if room != nil && room.Host != "" && room.Guest != "" {
 					if room.Mode == "ENHANCED" {
 						startEnhancedGame(parts[1])
-						// Gửi thông báo game đã bắt đầu cho cả hai
 						for _, uname := range []string{room.Host, room.Guest} {
 							if v, ok := userConns.Load(uname); ok {
 								if conn, ok2 := v.(net.Conn); ok2 {
 									conn.Write([]byte("ACK|GAME_STARTED\n"))
-									// Gửi trạng thái game ban đầu (dạng JSON)
 									stateMsg := getEnhancedGameState(uname)
 									conn.Write([]byte(stateMsg + "\n"))
 								}
@@ -296,8 +297,7 @@ func handleConnection(conn net.Conn) {
 				send("ERR|Usage: DEPLOY|troop_name|target_tower")
 				continue
 			}
-
-			// First check if player is in an enhanced game
+			// Check if player is in an enhanced game
 			enhancedGamesLock.Lock()
 			inEnhancedGame := false
 			for _, g := range enhancedGames {
@@ -307,16 +307,12 @@ func handleConnection(conn net.Conn) {
 				}
 			}
 			enhancedGamesLock.Unlock()
-
-			// If player is in an enhanced game, handle it
 			if inEnhancedGame {
 				response := handleEnhancedDeploy(currentUsername, parts[1], parts[2])
-				// If successful or has specific error message, send it
 				if response != "" {
 					send(response)
 				}
 			} else {
-				// Otherwise try simple game
 				send(handleDeploy(currentUsername, parts[1], parts[2]))
 			}
 		case "STATE":
@@ -324,8 +320,6 @@ func handleConnection(conn net.Conn) {
 				send("ERR|Login first")
 				continue
 			}
-
-			// First check if player is in an enhanced game
 			enhancedGamesLock.Lock()
 			inEnhancedGame := false
 			for _, g := range enhancedGames {
@@ -335,11 +329,9 @@ func handleConnection(conn net.Conn) {
 				}
 			}
 			enhancedGamesLock.Unlock()
-
 			if inEnhancedGame {
 				send(getEnhancedGameState(currentUsername))
 			} else {
-				// If not in an enhanced game, try simple game
 				send(getGameState(currentUsername))
 			}
 		case "EXIT_GAME":
@@ -348,7 +340,6 @@ func handleConnection(conn net.Conn) {
 				continue
 			}
 			handlePlayerExit(currentUser.Username)
-			// Send GAME_END to the player who exited as well, to ensure they return to menu
 			send("GAME_END|You have exited the game")
 		case "BUY":
 			if currentUser == nil {
@@ -366,7 +357,7 @@ func handleConnection(conn net.Conn) {
 		}
 	}
 	if currentUsername != "" {
-		userConns.Delete(currentUsername)
+		userConns.Delete(currentUsername) // Remove user from active connections on disconnect
 	}
 }
 
@@ -449,35 +440,39 @@ func registerUser(username, password string) bool {
 	return true
 }
 
-// Add support for CREATE_GAME and JOIN_GAME with mode
+// createGameRoom creates a new game room with the given host and mode (SIMPLE or ENHANCED)
+// Returns the room ID string
 func createGameRoom(host, mode string) string {
-	roomsLock.Lock()
-	defer roomsLock.Unlock()
-	id := fmt.Sprintf("room%d", len(gameRooms)+1)
+	roomsLock.Lock()                              // Lock the rooms map for thread safety
+	defer roomsLock.Unlock()                      // Ensure unlock after function
+	id := fmt.Sprintf("room%d", len(gameRooms)+1) // Generate a unique room ID
 	if mode == "ENHANCED" {
-		gameRooms[id] = &GameRoom{ID: id, Host: host, Started: false, Mode: "ENHANCED"}
+		gameRooms[id] = &GameRoom{ID: id, Host: host, Started: false, Mode: "ENHANCED"} // Create enhanced room
 	} else {
-		gameRooms[id] = &GameRoom{ID: id, Host: host, Started: false, Mode: "SIMPLE"}
+		gameRooms[id] = &GameRoom{ID: id, Host: host, Started: false, Mode: "SIMPLE"} // Create simple room
 	}
-	return id
+	return id // Return the new room ID
 }
 
+// listGameRooms returns a comma-separated string of all available (not started) rooms
 func listGameRooms() string {
-	roomsLock.Lock()
+	roomsLock.Lock() // Lock for thread safety
 	defer roomsLock.Unlock()
-	var ids []string
+	var ids []string // Slice to hold room info
 	for id, room := range gameRooms {
 		if !room.Started && room.Guest == "" {
-			ids = append(ids, id+":"+room.Host)
+			ids = append(ids, id+":"+room.Host) // Format: roomID:host
 		}
 	}
-	return strings.Join(ids, ",")
+	return strings.Join(ids, ",") // Return as comma-separated string
 }
 
+// joinGameRoom allows a guest to join a room by ID
+// Returns true if successful, false otherwise
 func joinGameRoom(id, guest string) bool {
-	roomsLock.Lock()
+	roomsLock.Lock() // Lock for thread safety
 	defer roomsLock.Unlock()
-	room, ok := gameRooms[id]
+	room, ok := gameRooms[id] // Find the room
 	if !ok || room.Started || room.Guest != "" {
 		return false
 	}
@@ -495,14 +490,14 @@ func startGame(roomID, username string, conn net.Conn) bool {
 		return false
 	}
 	if room.Mode == "ENHANCED" {
-		return startEnhancedGame(roomID)
+		return startEnhancedGame(roomID) // Start enhanced game if needed
 	}
 	// Only start if both players are present
 	if room.Host == "" || room.Guest == "" {
 		return false
 	}
 	if _, exists := games[roomID]; exists {
-		// Nếu game đã tồn tại, không khởi tạo lại troops/towers nữa!
+		// If game already exists, do not re-initialize
 		return false
 	}
 	// Initialize game state
@@ -517,7 +512,7 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	for name := range troopSpecMap {
 		availableTroopNames = append(availableTroopNames, name)
 	}
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano()) // Seed random for troop selection
 	for _, uname := range []string{room.Host, room.Guest} {
 		// Simple mode: DO NOT scale stats by level
 		// Randomly select 3 unique troops for each player
@@ -552,15 +547,14 @@ func startGame(roomID, username string, conn net.Conn) bool {
 			Troops:   troops,
 			Turn:     false,
 		}
-	} // Randomly pick who starts
+	}
+	// Randomly pick who starts
 	turnIdx := rand.Intn(2)
 	turnUser := room.Host
 	if turnIdx == 1 {
 		turnUser = room.Guest
 	}
-
-	players[turnUser].Turn = true
-
+	players[turnUser].Turn = true // Set turn for starting player
 	games[roomID] = &GameState{
 		RoomID:         roomID,
 		Players:        players,
@@ -572,7 +566,7 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	return true
 }
 
-// ///////////// Đếm số troop còn sống
+// countAliveTroops returns the number of alive troops (HP > 0) for a player
 func countAliveTroops(ps *PlayerState) int {
 	c := 0
 	for _, tr := range ps.Troops {
@@ -583,6 +577,7 @@ func countAliveTroops(ps *PlayerState) int {
 	return c
 }
 
+// countAliveTowers returns the number of alive towers (HP > 0)
 func countAliveTowers(towers map[string]*Tower) int {
 	cnt := 0
 	for _, tw := range towers {
@@ -593,7 +588,7 @@ func countAliveTowers(towers map[string]*Tower) int {
 	return cnt
 }
 
-// ///////////////// Tính tổng HP của các tower
+// sumTowerHP returns the total HP of all towers
 func sumTowerHP(towers map[string]*Tower) int {
 	total := 0
 	for _, tw := range towers {
@@ -602,8 +597,13 @@ func sumTowerHP(towers map[string]*Tower) int {
 	return total
 }
 
+// handleDeploy processes a deploy command from a player in simple mode
+// username: the player making the move
+// troopName: the troop to deploy
+// towerName: the target tower
+// Returns a string message to send back to the client
 func handleDeploy(username, troopName, towerName string) string {
-	gamesLock.Lock()
+	gamesLock.Lock() // Lock the games map for thread safety
 	defer gamesLock.Unlock()
 	var game *GameState
 	for _, g := range games {
@@ -613,10 +613,10 @@ func handleDeploy(username, troopName, towerName string) string {
 		}
 	}
 	if game == nil || game.Over {
-		return "ERR|No active game"
+		return "ERR|No active game" // No game found or already over
 	}
 	if game.TurnUser != username {
-		return "ERR|Not your turn"
+		return "ERR|Not your turn" // Not this player's turn
 	}
 	player := game.Players[username]
 	var troop *Troop
@@ -628,7 +628,7 @@ func handleDeploy(username, troopName, towerName string) string {
 		}
 	}
 	if troop == nil {
-		return "ERR|Invalid or dead troop"
+		return "ERR|Invalid or dead troop" // Troop not found or dead
 	}
 	// Find target tower
 	var enemyName string
@@ -642,29 +642,26 @@ func handleDeploy(username, troopName, towerName string) string {
 
 	// Check tower attack restrictions
 	if towerName == "King" {
-		// Check if at least one guard tower is destroyed before allowing King tower attack
+		// Must destroy at least one guard tower before attacking King
 		if enemy.Towers["Guard1"].HP > 0 && enemy.Towers["Guard2"].HP > 0 {
 			return "ERR|Must destroy either Guard1 or Guard2 tower before attacking King"
 		}
 	} else if towerName == "Guard1" || towerName == "Guard2" {
 		// Check if this is the first guard tower attack by this player
 		firstGuardTower, hasPattern := game.AttackPatterns[username]
-
 		if !hasPattern {
 			// First time attacking a guard tower - record the choice
 			game.AttackPatterns[username] = towerName
 		} else if firstGuardTower != towerName {
 			// Player is trying to attack the other guard tower
 			if enemy.Towers[firstGuardTower].HP > 0 {
-				// The first guard tower is not yet destroyed, prevent switch
 				return fmt.Sprintf("ERR|You must destroy %s Tower first before attacking %s Tower", firstGuardTower, towerName)
 			}
 		}
 	}
-
 	tower, ok := enemy.Towers[towerName]
 	if !ok || tower.HP <= 0 {
-		return "ERR|Invalid or destroyed tower"
+		return "ERR|Invalid or destroyed tower" // Tower not found or already destroyed
 	}
 
 	// Simple attack logic - troop attacks tower
@@ -677,14 +674,13 @@ func handleDeploy(username, troopName, towerName string) string {
 		tower.HP = 0
 	}
 
-	////////// --- CHECK TROOP =0 ---
+	// Check if all troops are dead for either player
 	if countAliveTroops(player) == 0 || countAliveTroops(enemy) == 0 {
-		// Đếm trụ còn sống của mỗi bên
+		// Count alive towers for both players
 		aliveP := countAliveTowers(player.Towers)
 		aliveE := countAliveTowers(enemy.Towers)
-
-		// 2.1) If tower diff → tower > -> win
 		if aliveP != aliveE {
+			// Whoever has more towers alive wins
 			var winner, loser string
 			if aliveP > aliveE {
 				winner = username
@@ -693,40 +689,34 @@ func handleDeploy(username, troopName, towerName string) string {
 				winner = enemyName
 				loser = username
 			}
-
 			game.Over = true
 			game.Winner = winner
 			sendToUser(winner, fmt.Sprintf("GAME_END|You win! You have more towers alive (%d vs %d).", aliveP, aliveE))
 			sendToUser(loser, fmt.Sprintf("GAME_END|You lose! Fewer towers alive (%d vs %d).", aliveE, aliveP))
-
-			// 2.2) If tower same → cal HP
 		} else {
+			// If tower count is equal, compare total HP
 			hpP := sumTowerHP(player.Towers)
 			hpE := sumTowerHP(enemy.Towers)
-
 			switch {
 			case hpP > hpE:
 				game.Over = true
 				game.Winner = username
 				sendToUser(username, "GAME_END|You win! Equal tower count but higher total HP.")
 				sendToUser(enemyName, "GAME_END|You lose! Equal tower count but lower total HP.")
-
 			case hpE > hpP:
 				game.Over = true
 				game.Winner = enemyName
 				sendToUser(enemyName, "GAME_END|You win! Equal tower count but higher total HP.")
 				sendToUser(username, "GAME_END|You lose! Equal tower count but lower total HP.")
-
-			default: // hòa
+			default:
 				game.Over = true
 				sendToUser(username, "GAME_END|Draw! Equal tower count and equal total HP.")
 				sendToUser(enemyName, "GAME_END|Draw! Equal tower count and equal total HP.")
 			}
 		}
-
 		return "STATE|" + formatGameState(game, username)
 	}
-	////////////// --- END CHECK ---
+
 	// Tower counter-attack logic - tower attacks troop
 	counterDamage := tower.ATK - troop.DEF
 	if counterDamage < 0 {
@@ -734,10 +724,10 @@ func handleDeploy(username, troopName, towerName string) string {
 	}
 	troop.HP -= counterDamage
 	if troop.HP <= 0 {
-		troop.HP = 0 // Đánh dấu troop đã chết/đã sử dụng
+		troop.HP = 0 // Mark troop as dead/used
 	}
 
-	// Check for win
+	// Check for win by King destroyed
 	if enemy.Towers["King"].HP <= 0 {
 		game.Over = true
 		game.Winner = username
@@ -779,7 +769,6 @@ func handleDeploy(username, troopName, towerName string) string {
 		if healTower != nil {
 			healAmount := 300 // Heal by 300 HP
 			healTower.HP += healAmount
-
 			// Notify players about the healing
 			healMsg := fmt.Sprintf("QUEEN_HEAL|%s|%s|%d|%d", username, healTower.Name, healAmount, healTower.HP)
 			sendToUser(username, healMsg)
@@ -802,7 +791,6 @@ func handleDeploy(username, troopName, towerName string) string {
 			sendToUser(playerName, "TURN|Wait for your turn...")
 		}
 	}
-
 	return "ACK|Deploy successful"
 }
 
@@ -850,29 +838,35 @@ func handleEnhancedBuy(username, troopName string) string {
 	return "ACK|Buy successful"
 }
 
-// Helper to send message to a user if connected
+// sendToUser sends a message to a user if they are connected
+// username: the username to send to
+// msg: the message to send
 func sendToUser(username, msg string) {
-	if v, ok := userConns.Load(username); ok {
-		if conn, ok2 := v.(net.Conn); ok2 {
-			conn.Write([]byte(msg + "\n"))
+	if v, ok := userConns.Load(username); ok { // Check if user is in the map
+		if conn, ok2 := v.(net.Conn); ok2 { // Type assert to net.Conn
+			conn.Write([]byte(msg + "\n")) // Write message with newline
 		}
 	}
 }
 
+// getGameState returns the current game state for a user as a string
 func getGameState(username string) string {
-	gamesLock.Lock()
+	gamesLock.Lock() // Lock for thread safety
 	defer gamesLock.Unlock()
 	for _, g := range games {
 		if g.Players[username] != nil {
-			return "STATE|" + formatGameState(g, username)
+			return "STATE|" + formatGameState(g, username) // Return formatted state
 		}
 	}
-	return "ERR|Not in game"
+	return "ERR|Not in game" // Not found
 }
 
+// formatGameState formats the game state for display to a user
+// g: pointer to GameState
+// username: the user requesting the state
 func formatGameState(g *GameState, username string) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Room: %s\n", g.RoomID))
+	var sb strings.Builder                              // Use a string builder for efficiency
+	sb.WriteString(fmt.Sprintf("Room: %s\n", g.RoomID)) // Room ID
 	for uname, ps := range g.Players {
 		sb.WriteString(fmt.Sprintf("Player: %s %s\n", uname, ternary(uname == g.TurnUser, "(TURN)", "")))
 		sb.WriteString("  Towers:\n")
@@ -898,6 +892,7 @@ func formatGameState(g *GameState, username string) string {
 	return sb.String()
 }
 
+// ternary is a helper function for inline if-else
 func ternary(cond bool, a, b string) string {
 	if cond {
 		return a
@@ -905,8 +900,9 @@ func ternary(cond bool, a, b string) string {
 	return b
 }
 
+// loadSpecs loads tower and troop specs from the JSON file
 func loadSpecs() {
-	data, err := ioutil.ReadFile(specsFile)
+	data, err := ioutil.ReadFile(specsFile) // Read the file
 	if err != nil {
 		fmt.Println("Error loading specs.json:", err)
 		os.Exit(1)
@@ -919,80 +915,88 @@ func loadSpecs() {
 		fmt.Println("Error parsing specs.json:", err)
 		os.Exit(1)
 	}
-	towerSpecs = specs.Towers
-	troopSpecs = specs.Troops
+	towerSpecs = specs.Towers // Assign loaded towers
+	troopSpecs = specs.Troops // Assign loaded troops
 }
 
+// init is called automatically before main
 func init() {
-	loadSpecs()
+	loadSpecs() // Load specs at startup
 }
 
 // Load/save player progress (exp, level, etc.)
+// Hàm loadProgress lấy thông tin tiến trình (level, exp, ...) của user từ file JSON
 func loadProgress(username string) *PlayerProgress {
-	usersLock.Lock()
-	defer usersLock.Unlock()
-	data, err := ioutil.ReadFile(progressFile)
+	usersLock.Lock()                           // Khóa để tránh race condition khi đọc file
+	defer usersLock.Unlock()                   // Mở khóa khi hàm kết thúc
+	data, err := ioutil.ReadFile(progressFile) // Đọc file tiến trình (users.json)
 	if err != nil {
+		// Nếu lỗi (chưa có file), trả về tiến trình mặc định (level 1, chưa có nâng cấp tower/troop)
 		return &PlayerProgress{Username: username, Level: 1, TowerLv: map[string]int{}, TroopLv: map[string]int{}}
 	}
-	var users UsersData
-	_ = json.Unmarshal(data, &users)
+	var users UsersData              // Tạo biến lưu danh sách user
+	_ = json.Unmarshal(data, &users) // Parse JSON thành struct UsersData
 	for _, u := range users.Users {
 		if u.Username == username {
+			// Nếu tìm thấy user, trả về tiến trình với EXP, Level hiện tại
 			return &PlayerProgress{Username: u.Username, EXP: u.EXP, Level: u.Level, TowerLv: map[string]int{}, TroopLv: map[string]int{}}
 		}
 	}
+	// Nếu không tìm thấy user, trả về tiến trình mặc định
 	return &PlayerProgress{Username: username, Level: 1, TowerLv: map[string]int{}, TroopLv: map[string]int{}}
 }
 
+// Hàm saveProgress lưu lại tiến trình (level, exp, ...) của user vào file JSON
 func saveProgress(progress *PlayerProgress) {
-	usersLock.Lock()
+	usersLock.Lock() // Khóa để tránh race condition khi ghi file
 	defer usersLock.Unlock()
-	data, err := ioutil.ReadFile(progressFile)
+	data, err := ioutil.ReadFile(progressFile) // Đọc file tiến trình
 	if err != nil {
-		return
+		return // Nếu lỗi thì bỏ qua
 	}
 	var users UsersData
-	_ = json.Unmarshal(data, &users)
+	_ = json.Unmarshal(data, &users) // Parse JSON thành struct
 	for i, u := range users.Users {
 		if u.Username == progress.Username {
+			// Nếu tìm thấy user, cập nhật EXP và Level
 			users.Users[i].EXP = progress.EXP
 			users.Users[i].Level = progress.Level
 		}
 	}
-	out, _ := json.MarshalIndent(users, "", "  ")
-	_ = ioutil.WriteFile(progressFile, out, 0644)
+	out, _ := json.MarshalIndent(users, "", "  ") // Chuyển lại thành JSON
+	_ = ioutil.WriteFile(progressFile, out, 0644) // Ghi ra file
 }
 
 // Enhanced game start: continuous, mana, exp, timer
+// Khởi tạo game nâng cao (enhanced mode), phát quân, tower, mana, exp, timer cho mỗi user
 func startEnhancedGame(roomID string) bool {
-	enhancedGamesLock.Lock()
+	enhancedGamesLock.Lock() // Khóa để tránh race condition
 	defer enhancedGamesLock.Unlock()
 	room, ok := gameRooms[roomID]
 	if !ok || !room.Started {
-		return false
+		return false // Nếu phòng không tồn tại hoặc chưa start thì trả về false
 	}
 	if room.Host == "" || room.Guest == "" {
-		return false
+		return false // Nếu thiếu người thì không start
 	}
 	if _, exists := enhancedGames[roomID]; exists {
-		return false
+		return false // Nếu game đã tồn tại thì không khởi tạo lại
 	}
 	players := map[string]*EnhancedPlayerState{}
 	for _, uname := range []string{room.Host, room.Guest} {
-		progress := loadProgress(uname)
+		progress := loadProgress(uname) // Lấy tiến trình user
 		level := 1
 		if progress != nil {
-			level = progress.Level
+			level = progress.Level // Lấy level hiện tại
 		}
-		mult := 1.0 + 0.1*float64(level-1)
+		mult := 1.0 + 0.1*float64(level-1) // Tính hệ số nhân theo level
 		towers := map[string]*Tower{}
 		for _, v := range towerSpecs {
 			lv := progress.TowerLv[v.Name]
 			if lv == 0 {
 				lv = 1
 			}
-			// Multiply by user level, not just tower level
+			// Nhân chỉ số tower theo level
 			towers[v.Name] = &Tower{
 				Name: v.Name,
 				HP:   int(float64(v.HP) * mult),
@@ -1031,7 +1035,7 @@ func startEnhancedGame(roomID string) bool {
 			Username: uname,
 			Towers:   towers,
 			Troops:   troops,
-			Mana:     5,
+			Mana:     5, // Mỗi user bắt đầu với 5 mana
 			EXP:      progress.EXP,
 			Level:    progress.Level,
 			Progress: progress}
@@ -1042,33 +1046,34 @@ func startEnhancedGame(roomID string) bool {
 		Winner:         "",
 		Over:           false,
 		StartTime:      time.Now(),
-		EndTime:        time.Now().Add(3 * time.Minute),
+		EndTime:        time.Now().Add(3 * time.Minute), // Game kéo dài 3 phút
 		AttackPatterns: make(map[string]string),
 	}
-	enhancedGames[roomID] = gs
-	go enhancedGameLoop(roomID)
+	enhancedGames[roomID] = gs  // Lưu game vào map
+	go enhancedGameLoop(roomID) // Chạy goroutine quản lý game loop
 	return true
 }
 
 // Enhanced game loop: mana regen, timer, end conditions
+// Goroutine này chạy liên tục để hồi mana, kiểm tra hết giờ, tính thắng/thua, cập nhật exp/level
 func enhancedGameLoop(roomID string) {
 	for {
-		time.Sleep(1 * time.Second)
+		time.Sleep(1 * time.Second) // Mỗi giây lặp lại
 		enhancedGamesLock.Lock()
 		gs, ok := enhancedGames[roomID]
 		if !ok || gs.Over {
 			enhancedGamesLock.Unlock()
-			return
+			return // Nếu game đã kết thúc thì dừng
 		}
 		for _, ps := range gs.Players {
 			if ps.Mana < 10 {
-				ps.Mana++
+				ps.Mana++ // Hồi mana mỗi giây, tối đa 10
 			}
 		}
-		// Check for end by timer or already over
+		// Kiểm tra hết giờ hoặc game đã kết thúc
 		if time.Now().After(gs.EndTime) || gs.Over {
 			gs.Over = true
-			// Determine winner by towers remaining (ai còn nhiều tower hơn sẽ thắng)
+			// Tính số tower còn sống của mỗi người
 			aliveCounts := map[string]int{}
 			for uname, ps := range gs.Players {
 				alive := 0
@@ -1079,7 +1084,7 @@ func enhancedGameLoop(roomID string) {
 				}
 				aliveCounts[uname] = alive
 			}
-			// So sánh số tower còn sống
+			// So sánh số tower còn sống để xác định thắng/thua/hòa
 			var winner string
 			var draw bool
 			usernames := []string{}
@@ -1102,7 +1107,7 @@ func enhancedGameLoop(roomID string) {
 			} else {
 				gs.Winner = winner
 			}
-			// Award EXP
+			// Cộng EXP cho người chơi
 			for uname, ps := range gs.Players {
 				oppName := ""
 				for n := range gs.Players {
@@ -1116,11 +1121,11 @@ func enhancedGameLoop(roomID string) {
 					oppLv = gs.Players[oppName].Level
 				}
 				if gs.Winner == "DRAW" {
-					ps.EXP += 2 * oppLv
+					ps.EXP += 2 * oppLv // Hòa thì cộng ít exp
 				} else if gs.Winner == uname {
-					ps.EXP += 5 * oppLv
+					ps.EXP += 5 * oppLv // Thắng thì cộng nhiều exp
 				}
-				// Level up if enough EXP
+				// Tăng level nếu đủ exp
 				req := 100 + int(0.1*float64(ps.Level-1)*100)
 				for ps.EXP >= req {
 					ps.EXP -= req
@@ -1131,14 +1136,14 @@ func enhancedGameLoop(roomID string) {
 				ps.Progress.Level = ps.Level
 				saveProgress(ps.Progress)
 			}
-			// Send final state and GAME_END to both players
+			// Gửi trạng thái cuối cùng và GAME_END cho cả hai người chơi
 			for uname := range gs.Players {
 				if v, ok := userConns.Load(uname); ok {
 					if conn, ok2 := v.(net.Conn); ok2 {
-						// Send final state
+						// Gửi trạng thái cuối cùng
 						state, _ := json.Marshal(gs)
 						conn.Write([]byte("STATE|" + string(state) + "\n"))
-						// Send GAME_END
+						// Gửi GAME_END
 						if gs.Winner == "DRAW" {
 							conn.Write([]byte("GAME_END|Draw!\n"))
 						} else if gs.Winner == uname {
@@ -1149,7 +1154,7 @@ func enhancedGameLoop(roomID string) {
 					}
 				}
 			}
-			// Wait 2 seconds before cleanup to allow clients to process GAME_END
+			// Đợi 2 giây rồi xóa game khỏi bộ nhớ
 			enhancedGamesLock.Unlock()
 			time.Sleep(2 * time.Second)
 			enhancedGamesLock.Lock()

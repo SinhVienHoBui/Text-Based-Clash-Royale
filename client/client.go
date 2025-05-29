@@ -11,70 +11,100 @@ import (
 	"time"
 )
 
+// Main entry point for the client application
 func main() {
+	// Print a startup message
 	fmt.Println("TCR Client starting...")
+	// Connect to the server at localhost:9000 using TCP
 	conn, err := net.Dial("tcp", "localhost:9000")
 	if err != nil {
+		// If connection fails, print error and exit
 		fmt.Println("Unable to connect to server:", err)
 		os.Exit(1)
 	}
+	// Ensure the connection is closed when main exits
 	defer conn.Close()
+	// Print successful connection message
 	fmt.Println("Connected to server.")
+	// Create a buffered reader for user input from stdin
 	reader := bufio.NewReader(os.Stdin)
+	// Create a scanner to read messages from the server
 	serverScanner := bufio.NewScanner(conn)
-	// Login/Register
+	// Login/Register loop
 	for {
+		// Show login/register menu
 		fmt.Println("1. Login\n2. Register\nChoose:")
+		// Read user choice
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
 		if choice == "1" {
+			// Prompt for username
 			fmt.Print("Username: ")
 			user, _ := reader.ReadString('\n')
+			// Prompt for password
 			fmt.Print("Password: ")
 			pass, _ := reader.ReadString('\n')
+			// Format login message
 			msg := fmt.Sprintf("LOGIN|%s|%s", strings.TrimSpace(user), strings.TrimSpace(pass))
+			// Send login message to server
 			conn.Write([]byte(msg + "\n"))
 		} else if choice == "2" {
+			// Prompt for username
 			fmt.Print("Username: ")
 			user, _ := reader.ReadString('\n')
+			// Prompt for password
 			fmt.Print("Password: ")
 			pass, _ := reader.ReadString('\n')
+			// Format register message
 			msg := fmt.Sprintf("REGISTER|%s|%s", strings.TrimSpace(user), strings.TrimSpace(pass))
+			// Send register message to server
 			conn.Write([]byte(msg + "\n"))
 		} else {
+			// Invalid choice, prompt again
 			fmt.Println("Invalid choice.")
 			continue
 		}
-		// Wait for ACK
+		// Wait for server response (ACK or ERR)
 		for serverScanner.Scan() {
 			msg := serverScanner.Text()
 			fmt.Println(msg)
 			if strings.HasPrefix(msg, "ACK|Login successful") || strings.HasPrefix(msg, "ACK|Register successful") {
+				// Successful login/register, break loop
 				break
 			} else if strings.HasPrefix(msg, "ERR|") {
+				// Error, exit client
 				os.Exit(1)
 			}
 		}
 		break
-	} // end login/register	// After login/register, allow game creation/joining
+	} // end login/register
+	// After login/register, allow game creation/joining
 	for {
+		// Show main menu
 		fmt.Println("1. Create Game\n2. List/Join Game\n3. Exit\nChoose:")
+		// Read user choice
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
 		if choice == "3" {
+			// Exit client
 			fmt.Println("Exiting client. Goodbye!")
 			os.Exit(0)
 		} else if choice == "1" {
+			// Prompt for game mode
 			fmt.Println("Select game mode: 1. Simple  2. Enhanced")
 			mode, _ := reader.ReadString('\n')
 			mode = strings.TrimSpace(mode)
 			if mode == "2" {
+				// Create enhanced game
 				conn.Write([]byte("CREATE_GAME|ENHANCED\n"))
 			} else {
+				// Create simple game
 				conn.Write([]byte("CREATE_GAME|SIMPLE\n"))
 			}
+			// Wait for game to start
 			waitForGameStart(serverScanner, conn, mode)
 		} else if choice == "2" {
+			// List available games
 			conn.Write([]byte("LIST_GAMES\n"))
 			var roomsLine string
 			for serverScanner.Scan() {
@@ -93,6 +123,7 @@ func main() {
 			if roomsLine == "" {
 				continue
 			}
+			// Parse and display available rooms
 			rooms := strings.Split(roomsLine, ",")
 			fmt.Println("Available rooms:")
 			for _, r := range rooms {
@@ -106,14 +137,17 @@ func main() {
 					fmt.Printf("- Room ID: %s\n", r)
 				}
 			}
+			// Prompt user to enter room id to join
 			fmt.Print("Enter room id to join: ")
 			room, _ := reader.ReadString('\n')
 			room = strings.TrimSpace(room)
 			if room != "" {
+				// Send join request to server
 				conn.Write([]byte("JOIN_GAME|" + room + "\n"))
 				waitForGameStart(serverScanner, conn, "")
 			}
 		} else {
+			// Invalid choice, prompt again
 			fmt.Println("Invalid choice.")
 		}
 	}
@@ -121,9 +155,11 @@ func main() {
 
 // Only one scanner reads from server, and all game logic is handled here
 func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
+	// Reset the enhanced input goroutine for every new game
 	staticEnhancedInputOnce = sync.Once{}   // Reset for every new game
 	enhancedInputStop = make(chan struct{}) // Reset stop channel for each game
 	fmt.Println("[Waiting for game to start...]")
+	// Listen for server messages until game starts or error
 	for scanner.Scan() {
 		msg := scanner.Text()
 		fmt.Println(msg)
@@ -132,6 +168,7 @@ func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
 			if mode != "2" && mode != "ENHANCED" {
 				fmt.Println("[Waiting for turn info...]")
 			}
+			// Start the main game loop for this mode
 			listenTurnLoop(scanner, conn, mode)
 			return
 		}
@@ -143,10 +180,10 @@ func waitForGameStart(scanner *bufio.Scanner, conn net.Conn, mode string) {
 }
 
 func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
-	myTurn := false
-	currentState := ""
-	waitingForInput := false
-	isEnhanced := (mode == "2" || mode == "ENHANCED")
+	myTurn := false                                   // Track if it's the player's turn
+	currentState := ""                                // Store the current game state as a string
+	waitingForInput := false                          // Prevent multiple input goroutines
+	isEnhanced := (mode == "2" || mode == "ENHANCED") // Detect enhanced mode
 	// Nếu mode rỗng (join phòng), tự động nhận diện ENHANCED nếu nhận được STATE|{...json...}
 	var enhancedDetected bool
 	if isEnhanced {
@@ -155,7 +192,7 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 		})
 	}
 	for scanner.Scan() {
-		msg := scanner.Text()
+		msg := scanner.Text() // Read message from server
 
 		if strings.HasPrefix(msg, "STATE|") {
 			jsonStr := msg[6:]
@@ -298,36 +335,39 @@ type Troop struct {
 	Owner string
 }
 
+// printEnhancedState prints the current enhanced game state in a user-friendly format
+// state: pointer to the EnhancedGameState struct containing all game info
+// conn: the network connection to the server (not used for printing, but may be used for future extensions)
 func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
-	fmt.Println("\n========== ENHANCED GAME STATE ==========")
-	fmt.Printf("Room: %s\n", state.RoomID)
-	for uname, p := range state.Players {
-		fmt.Printf("Player: %s (Level %d, EXP %d, Mana %d)\n", uname, p.Level, p.EXP, p.Mana)
+	fmt.Println("\n========== ENHANCED GAME STATE ==========") // Print header
+	fmt.Printf("Room: %s\n", state.RoomID)                     // Print room ID
+	for uname, p := range state.Players {                      // Loop through all players in the game
+		fmt.Printf("Player: %s (Level %d, EXP %d, Mana %d)\n", uname, p.Level, p.EXP, p.Mana) // Print player info
 		fmt.Println("  Towers:")
-		for _, t := range []string{"Guard1", "Guard2", "King"} {
+		for _, t := range []string{"Guard1", "Guard2", "King"} { // Always print towers in this order
 			tower := p.Towers[t]
 			if tower.HP <= 0 {
-				continue // Hide dead towers
+				continue // Skip dead towers
 			}
 			crit := ""
 			if t == "King" {
-				crit = "CRIT: 10% (Tower attacks troop)"
+				crit = "CRIT: 10% (Tower attacks troop)" // King tower has higher crit chance
 			} else {
-				crit = "CRIT: 5% (Tower attacks troop)"
+				crit = "CRIT: 5% (Tower attacks troop)" // Guard towers have lower crit chance
 			}
 			fmt.Printf("    %s: HP=%d ATK=%d DEF=%d %s\n", tower.Name, tower.HP, tower.ATK, tower.DEF, crit)
 		}
 		fmt.Println("  Troops you own:")
 		for _, tr := range p.Troops {
 			if tr.Name == "Queen" {
-				fmt.Printf("    %s: Special (Heal) - always available\n", tr.Name)
+				fmt.Printf("    %s: Special (Heal) - always available\n", tr.Name) // Queen's special ability
 			} else if tr.HP > 0 {
-				fmt.Printf("    %s: HP=%d ATK=%d DEF=%d\n", tr.Name, tr.HP, tr.ATK, tr.DEF)
+				fmt.Printf("    %s: HP=%d ATK=%d DEF=%d\n", tr.Name, tr.HP, tr.ATK, tr.DEF) // Print troop stats
 			}
 			// Dead troops are hidden from UI
 		}
 	}
-	// Hiển thị danh sách các troops có thể mua
+	// Print available troops to buy (static info)
 	fmt.Println("-----------------------------------------")
 	fmt.Println("Available troops to buy:")
 	fmt.Println("  Pawn   (HP: 50,  ATK: 150, DEF: 100, MANA: 3)")
@@ -337,87 +377,77 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 	fmt.Println("  Prince (HP: 500, ATK: 400, DEF: 300, MANA: 6)")
 	fmt.Println("  Queen  (Special: Heal, MANA: 5)")
 	if state.EndTime != "" {
-		end, _ := time.Parse(time.RFC3339, state.EndTime)
+		end, _ := time.Parse(time.RFC3339, state.EndTime) // Parse end time
 		now := time.Now()
-		remain := end.Sub(now)
+		remain := end.Sub(now) // Calculate time left
 		if remain > 0 {
-			fmt.Printf("Time left: %v\n", remain.Truncate(time.Second))
+			fmt.Printf("Time left: %v\n", remain.Truncate(time.Second)) // Print time left
 		}
 	}
 	fmt.Println("=========================================")
 	fmt.Println("[ENHANCED MODE] Type: buy <troop> | deploy <troop> <tower> | exit")
 }
 
-// Completely rewritten to fix issues with input handling and game ending
+// enhancedInputLoop handles user input for enhanced mode in a separate goroutine
+// Allows the user to buy or deploy troops, or exit the game, while the game state updates in real time
 func enhancedInputLoop(conn net.Conn) {
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin) // Reader for user input
 
-	// Sử dụng một biến cờ để theo dõi trạng thái hoạt động
-	isRunning := true
+	isRunning := true               // Flag to control the loop
+	stopCh := enhancedInputStop     // Channel to signal when to stop
+	inputCh := make(chan string, 5) // Buffered channel for user input
 
-	// Sử dụng một tham chiếu cục bộ để tránh sử dụng biến toàn cục
-	stopCh := enhancedInputStop
-
-	// Tạo một channel riêng để xử lý input
-	inputCh := make(chan string, 5) // Buffer lớn hơn để tránh blocking
-
-	// Goroutine đọc input từ người dùng
+	// Goroutine to read user input and send to inputCh
 	go func() {
 		for isRunning {
 			select {
 			case <-stopCh:
-				isRunning = false
+				isRunning = false // Stop if signaled
 				return
 			default:
-				fmt.Print("[ENHANCED] > ")
-				line, err := reader.ReadString('\n')
+				fmt.Print("[ENHANCED] > ")           // Prompt
+				line, err := reader.ReadString('\n') // Read input
 				if err != nil {
-					isRunning = false
+					isRunning = false // Stop on error
 					return
 				}
-
-				trimmedLine := strings.TrimSpace(line)
-
-				// Kiểm tra lại nếu đã nhận tín hiệu dừng trong khi đọc
+				trimmedLine := strings.TrimSpace(line) // Remove whitespace
+				// Check again for stop signal before sending input
 				select {
 				case <-stopCh:
 					isRunning = false
 					return
 				default:
 					if isRunning && trimmedLine != "" {
-						// Gửi input vào channel
-						inputCh <- trimmedLine
+						inputCh <- trimmedLine // Send input to channel
 					}
 				}
 			}
 		}
 	}()
 
-	// Vòng lặp chính xử lý input
+	// Main loop to process user input from inputCh
 	for isRunning {
 		select {
 		case <-stopCh:
 			isRunning = false
 			fmt.Println("[Double enter to return to menu]")
 			return
-
 		case line := <-inputCh:
 			if !isRunning {
 				return
 			}
-
 			if line == "exit" {
-				conn.Write([]byte("EXIT_GAME\n"))
+				conn.Write([]byte("EXIT_GAME\n")) // Send exit command to server
 				fmt.Println("Returning to main menu...")
 				isRunning = false
 				return
 			}
-
 			if strings.HasPrefix(line, "deploy ") {
 				parts := strings.Fields(line)
 				if len(parts) == 3 {
 					cmd := fmt.Sprintf("DEPLOY|%s|%s\n", parts[1], parts[2])
-					conn.Write([]byte(cmd))
+					conn.Write([]byte(cmd)) // Send deploy command
 					fmt.Println("[Sent deploy command]")
 				} else {
 					fmt.Println("Usage: deploy <troop> <tower>")
@@ -426,7 +456,7 @@ func enhancedInputLoop(conn net.Conn) {
 				parts := strings.Fields(line)
 				if len(parts) == 2 {
 					cmd := fmt.Sprintf("BUY|%s\n", parts[1])
-					conn.Write([]byte(cmd))
+					conn.Write([]byte(cmd)) // Send buy command
 					fmt.Println("[Sent buy command]")
 				} else {
 					fmt.Println("Usage: buy <troop>")
@@ -438,9 +468,14 @@ func enhancedInputLoop(conn net.Conn) {
 	}
 }
 
-// Refactored: always allow STATE and EXIT, only allow DEPLOY on your turn
+// inGameLoop handles user input for simple mode (turn-based)
+// scanner: reads server messages
+// conn: network connection
+// mode: game mode (simple/enhanced)
+// myTurn: whether it's the player's turn
+// cachedState: last known game state string
 func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool, cachedState string) {
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin) // Reader for user input
 
 	// Always display current game state when entering the game loop
 	if cachedState != "" {
@@ -448,13 +483,11 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 		fmt.Println(cachedState)
 	}
 
-	// Chỉ hiển thị menu cho người đang có lượt
+	// Only show menu if it's the player's turn
 	if myTurn {
 		fmt.Print("Enter command: 1. Deploy  3. Exit Game\n> ")
-
 		cmd, _ := reader.ReadString('\n')
 		cmd = strings.TrimSpace(cmd)
-
 		if cmd == "1" {
 			fmt.Print("Troop name: ")
 			troop, _ := reader.ReadString('\n')
@@ -462,12 +495,10 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 			fmt.Print("Target tower: ")
 			tower, _ := reader.ReadString('\n')
 			tower = strings.TrimSpace(tower)
-
-			// Clear any input buffer before sending command
+			// Send deploy command to server
 			conn.Write([]byte("DEPLOY|" + troop + "|" + tower + "\n"))
 			fmt.Println("[Sending deploy command...]")
-			// Return to listening for server messages
-			return
+			return // Return to listening for server messages
 		} else if cmd == "3" {
 			fmt.Println("Exiting game...")
 			conn.Write([]byte("EXIT_GAME\n"))
@@ -475,22 +506,19 @@ func inGameLoop(scanner *bufio.Scanner, conn net.Conn, mode string, myTurn bool,
 			return
 		} else if cmd != "" {
 			fmt.Println("Lệnh không hợp lệ, vui lòng thử lại.")
-			// Return to the turn loop to receive proper instructions
-			return
+			return // Return to turn loop for another try
 		}
 	} else {
-		// Khi chờ đối thủ, chỉ cho phép người chơi thoát game
+		// Nếu chờ đối thủ, chỉ cho phép người chơi thoát game
 		fmt.Print("Enter 'exit' to quit game\n> ")
 		cmd, _ := reader.ReadString('\n')
 		cmd = strings.ToLower(strings.TrimSpace(cmd))
-
 		if cmd == "exit" || cmd == "3" {
 			fmt.Println("Exiting game...")
 			conn.Write([]byte("EXIT_GAME\n"))
 			fmt.Println("Returning to main menu...")
 			return
 		}
-
 		// Không thực hiện thêm hành động nào, trở về chế độ lắng nghe
 		return
 	}
