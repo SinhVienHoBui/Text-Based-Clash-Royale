@@ -156,6 +156,7 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 	}
 	for scanner.Scan() {
 		msg := scanner.Text()
+
 		if strings.HasPrefix(msg, "STATE|") {
 			jsonStr := msg[6:]
 			var state EnhancedGameState
@@ -236,9 +237,10 @@ func listenTurnLoop(scanner *bufio.Scanner, conn net.Conn, mode string) {
 				waitingForInput = true
 				go func() {
 					fmt.Println("[Error detected! Please try again with a valid input]")
-					if strings.Contains(msg, "Must destroy Guard1") || strings.Contains(msg, "Must destroy Guard2") {
-						fmt.Println("[Reminder: You must destroy Guard1 Tower before attacking Guard2 or King,")
-						fmt.Println(" and must destroy Guard2 before attacking King]")
+					if strings.Contains(msg, "Must destroy either Guard1 or Guard2") {
+						fmt.Println("[Reminder: You must destroy EITHER Guard1 OR Guard2 Tower before attacking King]")
+					} else if strings.Contains(msg, "You must destroy") && strings.Contains(msg, "Tower first before attacking") {
+						fmt.Println("[Reminder: Once you start attacking a Guard Tower, you must destroy it completely before attacking the other Guard Tower]")
 					}
 					inGameLoop(scanner, conn, mode, myTurn, currentState)
 					waitingForInput = false

@@ -74,11 +74,12 @@ type PlayerState struct {
 }
 
 type GameState struct {
-	RoomID   string
-	Players  map[string]*PlayerState // username -> state
-	TurnUser string
-	Winner   string
-	Over     bool
+	RoomID         string
+	Players        map[string]*PlayerState // username -> state
+	TurnUser       string
+	Winner         string
+	Over           bool
+	AttackPatterns map[string]string // tracks which guard tower each player is attacking first
 }
 
 var (
@@ -126,12 +127,13 @@ type EnhancedPlayerState struct {
 }
 
 type EnhancedGameState struct {
-	RoomID    string
-	Players   map[string]*EnhancedPlayerState
-	Winner    string
-	Over      bool
-	StartTime time.Time
-	EndTime   time.Time
+	RoomID         string
+	Players        map[string]*EnhancedPlayerState
+	Winner         string
+	Over           bool
+	StartTime      time.Time
+	EndTime        time.Time
+	AttackPatterns map[string]string // tracks which guard tower each player is attacking first
 }
 
 var (
@@ -532,20 +534,22 @@ func startGame(roomID, username string, conn net.Conn) bool {
 			Troops:   troops,
 			Turn:     false,
 		}
-	}
-	// Randomly pick who starts
+	} // Randomly pick who starts
 	turnIdx := rand.Intn(2)
 	turnUser := room.Host
 	if turnIdx == 1 {
 		turnUser = room.Guest
 	}
+
 	players[turnUser].Turn = true
+
 	games[roomID] = &GameState{
-		RoomID:   roomID,
-		Players:  players,
-		TurnUser: turnUser,
-		Winner:   "",
-		Over:     false,
+		RoomID:         roomID,
+		Players:        players,
+		TurnUser:       turnUser,
+		Winner:         "",
+		Over:           false,
+		AttackPatterns: make(map[string]string), // initialize attack pattern tracking
 	}
 	return true
 }
@@ -587,17 +591,26 @@ func handleDeploy(username, troopName, towerName string) string {
 		}
 	}
 	enemy := game.Players[enemyName]
-	// Check tower attack order - must destroy Guard1 before attacking Guard2 or King
-	if towerName == "Guard2" || towerName == "King" {
-		if enemy.Towers["Guard1"].HP > 0 {
-			return "ERR|Must destroy Guard1 tower first before attacking Guard2 or King"
-		}
-	}
 
-	// If attacking King, also check Guard2
+	// Check tower attack restrictions
 	if towerName == "King" {
-		if enemy.Towers["Guard2"].HP > 0 {
-			return "ERR|Must destroy Guard2 tower first before attacking King"
+		// Check if at least one guard tower is destroyed before allowing King tower attack
+		if enemy.Towers["Guard1"].HP > 0 && enemy.Towers["Guard2"].HP > 0 {
+			return "ERR|Must destroy either Guard1 or Guard2 tower before attacking King"
+		}
+	} else if towerName == "Guard1" || towerName == "Guard2" {
+		// Check if this is the first guard tower attack by this player
+		firstGuardTower, hasPattern := game.AttackPatterns[username]
+
+		if !hasPattern {
+			// First time attacking a guard tower - record the choice
+			game.AttackPatterns[username] = towerName
+		} else if firstGuardTower != towerName {
+			// Player is trying to attack the other guard tower
+			if enemy.Towers[firstGuardTower].HP > 0 {
+				// The first guard tower is not yet destroyed, prevent switch
+				return fmt.Sprintf("ERR|You must destroy %s Tower first before attacking %s Tower", firstGuardTower, towerName)
+			}
 		}
 	}
 
@@ -858,16 +871,17 @@ func startEnhancedGame(roomID string) bool {
 			Mana:     5,
 			EXP:      progress.EXP,
 			Level:    progress.Level,
-			Progress: progress,
-		}
+			Progress: progress}
 	}
+
 	gs := &EnhancedGameState{
-		RoomID:    roomID,
-		Players:   players,
-		Winner:    "",
-		Over:      false,
-		StartTime: time.Now(),
-		EndTime:   time.Now().Add(3 * time.Minute),
+		RoomID:         roomID,
+		Players:        players,
+		Winner:         "",
+		Over:           false,
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(3 * time.Minute),
+		AttackPatterns: make(map[string]string), // initialize attack pattern tracking
 	}
 	enhancedGames[roomID] = gs
 	go enhancedGameLoop(roomID)
@@ -1020,8 +1034,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 	if ps.Mana < tspec.MANA {
 		return "ERR|Not enough mana"
 	}
-	ps.Mana -= tspec.MANA
-	// Find opponent
+	ps.Mana -= tspec.MANA // Find opponent
 	var opp *EnhancedPlayerState
 	var oppName string
 	for uname, p := range game.Players {
@@ -1031,20 +1044,33 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			break
 		}
 	}
+
 	if opp == nil {
 		return "ERR|No opponent"
 	}
-	// Check tower attack order
-	if targetTower == "Guard2" || targetTower == "King" {
-		if opp.Towers["Guard1"].HP > 0 {
-			return "ERR|Must destroy Guard1 tower first"
-		}
-	}
+
+	// Check tower attack restrictions
 	if targetTower == "King" {
-		if opp.Towers["Guard2"].HP > 0 {
-			return "ERR|Must destroy Guard2 tower first"
+		// Check if at least one guard tower is destroyed before allowing King tower attack
+		if opp.Towers["Guard1"].HP > 0 && opp.Towers["Guard2"].HP > 0 {
+			return "ERR|Must destroy either Guard1 or Guard2 tower before attacking King"
+		}
+	} else if targetTower == "Guard1" || targetTower == "Guard2" {
+		// Check if this is the first guard tower attack by this player
+		firstGuardTower, hasPattern := game.AttackPatterns[username]
+
+		if !hasPattern {
+			// First time attacking a guard tower - record the choice
+			game.AttackPatterns[username] = targetTower
+		} else if firstGuardTower != targetTower {
+			// Player is trying to attack the other guard tower
+			if opp.Towers[firstGuardTower].HP > 0 {
+				// The first guard tower is not yet destroyed, prevent switch
+				return fmt.Sprintf("ERR|You must destroy %s Tower first before attacking %s Tower", firstGuardTower, targetTower)
+			}
 		}
 	}
+
 	tower := opp.Towers[targetTower]
 	if tower == nil || tower.HP <= 0 {
 		return "ERR|Invalid or destroyed tower"
