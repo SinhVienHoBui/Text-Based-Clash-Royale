@@ -296,40 +296,51 @@ func handleConnection(conn net.Conn) {
 				send("ERR|Usage: DEPLOY|troop_name|target_tower")
 				continue
 			}
-			// Determine which mode the user is in
-			mode := "SIMPLE"
-			roomsLock.Lock()
-			for _, room := range gameRooms {
-				if (room.Host == currentUser.Username || room.Guest == currentUser.Username) && room.Started {
-					mode = room.Mode
+
+			// First check if player is in an enhanced game
+			enhancedGamesLock.Lock()
+			inEnhancedGame := false
+			for _, g := range enhancedGames {
+				if _, ok := g.Players[currentUsername]; ok {
+					inEnhancedGame = true
 					break
 				}
 			}
-			roomsLock.Unlock()
-			if mode == "ENHANCED" {
-				send(handleEnhancedDeploy(currentUser.Username, parts[1], parts[2]))
+			enhancedGamesLock.Unlock()
+
+			// If player is in an enhanced game, handle it
+			if inEnhancedGame {
+				response := handleEnhancedDeploy(currentUsername, parts[1], parts[2])
+				// If successful or has specific error message, send it
+				if response != "" {
+					send(response)
+				}
 			} else {
-				send(handleDeploy(currentUser.Username, parts[1], parts[2]))
+				// Otherwise try simple game
+				send(handleDeploy(currentUsername, parts[1], parts[2]))
 			}
 		case "STATE":
 			if currentUser == nil {
 				send("ERR|Login first")
 				continue
 			}
-			// Determine which mode the user is in
-			mode := "SIMPLE"
-			roomsLock.Lock()
-			for _, room := range gameRooms {
-				if (room.Host == currentUser.Username || room.Guest == currentUser.Username) && room.Started {
-					mode = room.Mode
+
+			// First check if player is in an enhanced game
+			enhancedGamesLock.Lock()
+			inEnhancedGame := false
+			for _, g := range enhancedGames {
+				if _, ok := g.Players[currentUsername]; ok {
+					inEnhancedGame = true
 					break
 				}
 			}
-			roomsLock.Unlock()
-			if mode == "ENHANCED" {
-				send(getEnhancedGameState(currentUser.Username))
+			enhancedGamesLock.Unlock()
+
+			if inEnhancedGame {
+				send(getEnhancedGameState(currentUsername))
 			} else {
-				send(getGameState(currentUser.Username))
+				// If not in an enhanced game, try simple game
+				send(getGameState(currentUsername))
 			}
 		case "EXIT_GAME":
 			if currentUser == nil {
@@ -1113,13 +1124,12 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 						}
 					}
 				}
-			}
-			// Clean up game and room
+			} // Clean up game and room
 			delete(enhancedGames, roomID)
 			roomsLock.Lock()
 			delete(gameRooms, roomID)
 			roomsLock.Unlock()
-			return ""
+			return "ACK|Deploy successful"
 		}
 	}
 	// Queen's heal
@@ -1147,8 +1157,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 				}
 			}
 		}
-	}
-	// Send ATTACK_RESULT and updated STATE to both players
+	} // Send ATTACK_RESULT and updated STATE to both players
 	for uname := range game.Players {
 		if v, ok := userConns.Load(uname); ok {
 			if conn, ok2 := v.(net.Conn); ok2 {
@@ -1158,7 +1167,7 @@ func handleEnhancedDeploy(username, troopName, targetTower string) string {
 			}
 		}
 	}
-	return ""
+	return "ACK|Deploy successful"
 }
 
 // Enhanced state
