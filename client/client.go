@@ -306,6 +306,9 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 		fmt.Println("  Towers:")
 		for _, t := range []string{"Guard1", "Guard2", "King"} {
 			tower := p.Towers[t]
+			if tower.HP <= 0 {
+				continue // Hide dead towers
+			}
 			crit := ""
 			if t == "King" {
 				crit = "CRIT: 10% (Tower attacks troop)"
@@ -316,28 +319,12 @@ func printEnhancedState(state *EnhancedGameState, conn net.Conn) {
 		}
 		fmt.Println("  Troops you own:")
 		for _, tr := range p.Troops {
-			mana := 0
-			switch tr.Name {
-			case "Pawn":
-				mana = 3
-			case "Bishop":
-				mana = 4
-			case "Rook":
-				mana = 5
-			case "Knight":
-				mana = 5
-			case "Prince":
-				mana = 6
-			case "Queen":
-				mana = 5
-			}
 			if tr.Name == "Queen" {
-				fmt.Printf("    %s: Special (Heal) - always available, MANA=%d\n", tr.Name, mana)
+				fmt.Printf("    %s: Special (Heal) - always available\n", tr.Name)
 			} else if tr.HP > 0 {
-				fmt.Printf("    %s: HP=%d ATK=%d DEF=%d MANA=%d\n", tr.Name, tr.HP, tr.ATK, tr.DEF, mana)
-			} else {
-				fmt.Printf("    %s: DEAD\n", tr.Name)
+				fmt.Printf("    %s: HP=%d ATK=%d DEF=%d\n", tr.Name, tr.HP, tr.ATK, tr.DEF)
 			}
+			// Dead troops are hidden from UI
 		}
 	}
 	// Hiển thị danh sách các troops có thể mua
