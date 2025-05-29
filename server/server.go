@@ -1030,10 +1030,21 @@ func enhancedGameLoop(roomID string) {
 			}
 			// Award EXP
 			for uname, ps := range gs.Players {
+				oppName := ""
+				for n := range gs.Players {
+					if n != uname {
+						oppName = n
+						break
+					}
+				}
+				oppLv := 1
+				if oppName != "" {
+					oppLv = gs.Players[oppName].Level
+				}
 				if gs.Winner == "DRAW" {
-					ps.EXP += 10
+					ps.EXP += 2 * oppLv
 				} else if gs.Winner == uname {
-					ps.EXP += 30
+					ps.EXP += 5 * oppLv
 				}
 				// Level up if enough EXP
 				req := 100 + int(0.1*float64(ps.Level-1)*100)
