@@ -350,8 +350,6 @@ func handleConnection(conn net.Conn) {
 			handlePlayerExit(currentUser.Username)
 			// Send GAME_END to the player who exited as well, to ensure they return to menu
 			send("GAME_END|You have exited the game")
-		default:
-			send("ERR|Unknown command")
 		case "BUY":
 			if currentUser == nil {
 				send("ERR|Login first")
@@ -363,6 +361,8 @@ func handleConnection(conn net.Conn) {
 			}
 			response := handleEnhancedBuy(currentUsername, parts[1])
 			send(response)
+		default:
+			send("ERR|Unknown command")
 		}
 	}
 	if currentUsername != "" {
@@ -372,12 +372,6 @@ func handleConnection(conn net.Conn) {
 
 // Global map for user connections
 var userConns sync.Map // username -> net.Conn
-
-func registerConn(user *User, conn net.Conn) {
-	if user != nil {
-		userConns.Store(user.Username, conn)
-	}
-}
 
 func notifyGameStartedWithTurn(roomID string) {
 	gamesLock.Lock()
@@ -508,6 +502,7 @@ func startGame(roomID, username string, conn net.Conn) bool {
 		return false
 	}
 	if _, exists := games[roomID]; exists {
+		// Nếu game đã tồn tại, không khởi tạo lại troops/towers nữa!
 		return false
 	}
 	// Initialize game state
@@ -524,13 +519,7 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	}
 	rand.Seed(time.Now().UnixNano())
 	for _, uname := range []string{room.Host, room.Guest} {
-		// Get player level for stat scaling
-		progress := loadProgress(uname)
-		level := 1
-		if progress != nil {
-			level = progress.Level
-		}
-		mult := 1.0 + 0.1*float64(level-1)
+		// Simple mode: DO NOT scale stats by level
 		// Randomly select 3 unique troops for each player
 		troopNames := make([]string, len(availableTroopNames))
 		copy(troopNames, availableTroopNames)
@@ -541,20 +530,20 @@ func startGame(roomID, username string, conn net.Conn) bool {
 			spec := troopSpecMap[tn]
 			troops = append(troops, &Troop{
 				Name:  spec.Name,
-				HP:    int(float64(spec.HP) * mult),
-				ATK:   int(float64(spec.ATK) * mult),
-				DEF:   int(float64(spec.DEF) * mult),
+				HP:    spec.HP,
+				ATK:   spec.ATK,
+				DEF:   spec.DEF,
 				Owner: uname,
 			})
 		}
-		// Assign towers from towerSpecs
+		// Assign towers from towerSpecs (no scaling)
 		towers := map[string]*Tower{}
 		for _, ts := range towerSpecs {
 			towers[ts.Name] = &Tower{
 				Name: ts.Name,
-				HP:   int(float64(ts.HP) * mult),
-				ATK:  int(float64(ts.ATK) * mult),
-				DEF:  int(float64(ts.DEF) * mult),
+				HP:   ts.HP,
+				ATK:  ts.ATK,
+				DEF:  ts.DEF,
 			}
 		}
 		players[uname] = &PlayerState{
@@ -797,6 +786,11 @@ func handleDeploy(username, troopName, towerName string) string {
 			sendToUser(enemyName, healMsg)
 		}
 	}
+	// 2. Then send updated state with a small delay to both players
+	time.Sleep(200 * time.Millisecond)
+	stateMsg = "STATE|" + formatGameState(game, username)
+	sendToUser(username, stateMsg)
+	sendToUser(enemyName, "STATE|"+formatGameState(game, enemyName))
 
 	// 4. Finally, send turn notifications with a longer delay
 	time.Sleep(300 * time.Millisecond)
