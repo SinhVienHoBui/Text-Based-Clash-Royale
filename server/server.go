@@ -514,7 +514,6 @@ func startGame(roomID, username string, conn net.Conn) bool {
 	}
 	rand.Seed(time.Now().UnixNano()) // Seed random for troop selection
 	for _, uname := range []string{room.Host, room.Guest} {
-		// Simple mode: DO NOT scale stats by level
 		// Randomly select 3 unique troops for each player
 		troopNames := make([]string, len(availableTroopNames))
 		copy(troopNames, availableTroopNames)
@@ -531,7 +530,7 @@ func startGame(roomID, username string, conn net.Conn) bool {
 				Owner: uname,
 			})
 		}
-		// Assign towers from towerSpecs (no scaling)
+		// Assign towers from towerSpecs
 		towers := map[string]*Tower{}
 		for _, ts := range towerSpecs {
 			towers[ts.Name] = &Tower{
